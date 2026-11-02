@@ -33,10 +33,27 @@ class PrivacyTests(unittest.TestCase):
                 check('owner/repo', 'dummy', reader=self.reader(package=package))
 
     def test_private_linked_package(self):
-        package = {'visibility': 'private', 'repository': {'full_name': 'Owner/Repo'}}
+        package = {'visibility': 'private', 'repository': {'full_name': 'Owner/Repo'},
+                   'name': 'repo', 'package_type': 'container', 'owner': {'login': 'Owner'}}
         reader = self.reader(package=package, kind='Organization')
         self.assertEqual(check('owner/repo', 'dummy', True, reader=reader), 'private-package')
         self.assertEqual(reader.call_args.args[0], 'orgs/owner/packages/container/repo')
+
+    def test_documented_response_without_repository_field(self):
+        package = {'visibility': 'private', 'name': 'repo', 'package_type': 'container',
+                   'owner': {'login': 'owner'}}
+        for link in [{}, {'repository': None}]:
+            self.assertEqual(check('owner/repo', 'dummy', True,
+                                  reader=self.reader(package=package | link)), 'private-package')
+
+    def test_wrong_identity_or_conflicting_link_rejected(self):
+        package = {'visibility': 'private', 'name': 'repo', 'package_type': 'container',
+                   'owner': {'login': 'owner'}}
+        for change in [{'name': 'other'}, {'package_type': 'npm'},
+                       {'owner': {'login': 'other'}}, {'owner': {}},
+                       {'repository': {'full_name': 'other/repo'}}]:
+            with self.subTest(change=change), self.assertRaises(ValueError):
+                check('owner/repo', 'dummy', True, reader=self.reader(package=package | change))
 
     def test_missing_token_and_invalid_repository_do_not_make_requests(self):
         for repository, token in [('owner/repo', ''), ('owner/repo?x=1', 'dummy')]:
@@ -85,6 +102,10 @@ class ReleaseTests(unittest.TestCase):
         self.assertLess(smoke, push)
         self.assertLess(privacy, push)
         self.assertTrue(steps[-1]['run'].endswith('--require-package'))
+        labels = next(i for i, s in enumerate(steps) if s.get('name') == 'Verify built image source and revision')
+        self.assertLess(labels, push)
+        self.assertIn('org.opencontainers.image.source', steps[labels]['run'])
+        self.assertIn('org.opencontainers.image.revision', steps[labels]['run'])
 
     def test_compose_is_image_only_and_keeps_existing_state(self):
         for name, service in self.compose['services'].items():

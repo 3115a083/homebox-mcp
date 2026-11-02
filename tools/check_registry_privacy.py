@@ -44,8 +44,17 @@ def check(repository, token, require_package=False, reader=fetch):
         return 'new-package'
     if package.get('visibility') != 'private':
         raise ValueError('Existing package is not private; refusing publish')
-    if package.get('repository', {}).get('full_name', '').lower() != repository.lower():
-        raise ValueError('Package is not linked to this repository')
+    if (package.get('name', '').lower() != name.lower()
+            or package.get('package_type') != 'container'
+            or package.get('owner', {}).get('login', '').lower() != owner.lower()):
+        raise ValueError('Package identity does not match the requested private container')
+    # The Packages REST response does not guarantee a repository field, even
+    # for linked containers. Verify documented owner/name/type fields instead.
+    # Reject a conflicting link if supplied; CI separately verifies OCI source
+    # and revision labels before publishing with this repository's GITHUB_TOKEN.
+    linked = (package.get('repository') or {}).get('full_name')
+    if linked and linked.lower() != repository.lower():
+        raise ValueError('Package is linked to another repository')
     return 'private-package'
 
 
