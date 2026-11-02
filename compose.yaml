@@ -1,0 +1,66 @@
+services:
+  homebox-mcp:
+    image: ghcr.io/3115a083/homebox-mcp:${HOMEBOX_MCP_TAG:-latest}
+    pull_policy: always
+    restart: unless-stopped
+    mem_limit: 512m
+    memswap_limit: 512m
+    cpus: 1.0
+    pids_limit: 64
+    init: true
+    logging:
+      driver: json-file
+      options:
+        max-size: 5m
+        max-file: "2"
+    ports:
+      - "${MCP_BIND_IP:-127.0.0.1}:${MCP_PORT:-18080}:8000"
+    env_file: .env
+    environment:
+      XDG_DATA_HOME: /state
+      XDG_CACHE_HOME: /tmp/cache
+    volumes:
+      - mcp_state:/state
+    read_only: true
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,size=64m
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+  photo-import:
+    profiles: [maintenance]
+    image: ghcr.io/3115a083/homebox-mcp:${HOMEBOX_MCP_TAG:-latest}
+    pull_policy: always
+    restart: "no"
+    command: [python, /app/import_photos.py]
+    environment:
+      HOMEBOX_URL: ${HOMEBOX_URL:?Set HOMEBOX_URL in .env}
+      HOMEBOX_TOKEN: ${HOMEBOX_TOKEN:?Set HOMEBOX_TOKEN in .env}
+    volumes:
+      - ./photos:/photos:ro
+    read_only: true
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,size=32m
+    mem_limit: 384m
+    memswap_limit: 384m
+    cpus: 0.5
+    pids_limit: 32
+    init: true
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options:
+        max-size: 5m
+        max-file: "2"
+
+volumes:
+  mcp_state:

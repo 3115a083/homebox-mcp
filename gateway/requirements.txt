@@ -1,0 +1,5 @@
+fastmcp==4.1.4
+homebox-mcp==1.4.0
+mcp==2.3.0
+qrcode==8.2
+Pillow==13.0.0

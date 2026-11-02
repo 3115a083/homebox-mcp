@@ -1,0 +1,10 @@
+.env
+*.key
+*.pem
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+photos/
+registry-auth/
+config.json

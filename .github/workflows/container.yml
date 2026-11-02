@@ -1,0 +1,135 @@
+name: Container
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: container-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  checks:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.12'
+      - name: Install locked dependencies
+        run: python -m pip install --disable-pip-version-check -r gateway/requirements.lock
+      - name: Check installed dependencies
+        run: python -m pip check
+      - name: Isolated security and release regression checks
+        run: python tools/run_checks.py
+      - name: Validate Compose without deployment
+        shell: bash
+        run: |
+          cp .env.example .env
+          trap 'rm -f .env' EXIT
+          HOMEBOX_TOKEN=ci-placeholder docker compose --env-file .env.example config --quiet
+
+  image:
+    if: github.ref != 'refs/heads/main'
+    needs: checks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+      - name: Build the exact image for smoke testing
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: ./gateway
+          platforms: linux/amd64
+          load: true
+          push: false
+          tags: homebox-mcp:ci
+          labels: |
+            org.opencontainers.image.source=https://github.com/3115a083/homebox-mcp
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.licenses=MIT
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          provenance: false
+      - name: Smoke-test image imports and non-root runtime without network
+        run: >-
+          docker run --rm --network none --read-only --cap-drop ALL
+          --security-opt no-new-privileges -e HOMEBOX_TOKEN=ci-placeholder
+          --entrypoint python homebox-mcp:ci -c
+          "import os, bridge, gateway; assert os.getuid() == 10001; assert 'upload_item_photo' in gateway.TOOLS; print('Image smoke passed')"
+
+  publish:
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    needs: checks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+      - name: Build the exact image for smoke testing
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: ./gateway
+          platforms: linux/amd64
+          load: true
+          push: false
+          tags: homebox-mcp:ci
+          labels: |
+            org.opencontainers.image.source=https://github.com/3115a083/homebox-mcp
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.licenses=MIT
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          provenance: false
+      - name: Smoke-test image imports and non-root runtime without network
+        run: >-
+          docker run --rm --network none --read-only --cap-drop ALL
+          --security-opt no-new-privileges -e HOMEBOX_TOKEN=ci-placeholder
+          --entrypoint python homebox-mcp:ci -c
+          "import os, bridge, gateway; assert os.getuid() == 10001; assert 'upload_item_photo' in gateway.TOOLS; print('Image smoke passed')"
+      - name: Check repository and package privacy before publish
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python tools/check_registry_privacy.py
+      - name: Login to private GHCR
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - name: Push tested image and rollback tag
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        env:
+          IMAGE: ghcr.io/3115a083/homebox-mcp
+          REVISION: ${{ github.sha }}
+        shell: bash
+        run: |
+          docker tag homebox-mcp:ci "$IMAGE:sha-$REVISION"
+          docker push "$IMAGE:sha-$REVISION"
+          docker tag homebox-mcp:ci "$IMAGE:latest"
+          docker push "$IMAGE:latest"
+      - name: Verify published package is private
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python tools/check_registry_privacy.py --require-package
