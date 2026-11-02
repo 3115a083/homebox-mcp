@@ -64,6 +64,9 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
           provenance: false
+      - name: Verify built image source and revision
+        run: |
+          docker image inspect homebox-mcp:ci --format '{{json .Config.Labels}}' | python -c 'import json, os, sys; labels=json.load(sys.stdin); assert labels["org.opencontainers.image.source"] == "https://github.com/" + os.environ["GITHUB_REPOSITORY"]; assert labels["org.opencontainers.image.revision"] == os.environ["GITHUB_SHA"]'
       - name: Smoke-test image imports and non-root runtime without network
         run: >-
           docker run --rm --network none --read-only --cap-drop ALL
@@ -99,6 +102,9 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
           provenance: false
+      - name: Verify built image source and revision
+        run: |
+          docker image inspect homebox-mcp:ci --format '{{json .Config.Labels}}' | python -c 'import json, os, sys; labels=json.load(sys.stdin); assert labels["org.opencontainers.image.source"] == "https://github.com/" + os.environ["GITHUB_REPOSITORY"]; assert labels["org.opencontainers.image.revision"] == os.environ["GITHUB_SHA"]'
       - name: Smoke-test image imports and non-root runtime without network
         run: >-
           docker run --rm --network none --read-only --cap-drop ALL
