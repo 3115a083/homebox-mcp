@@ -1,5 +1,5 @@
 {
-  "name": "Protect main",
+  "name": "Additional CI gates",
   "target": "branch",
   "enforcement": "active",
   "bypass_actors": [],
@@ -17,6 +17,9 @@
     },
     {
       "type": "non_fast_forward"
+    },
+    {
+      "type": "required_linear_history"
     },
     {
       "type": "pull_request",

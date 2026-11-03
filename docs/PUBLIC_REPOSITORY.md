@@ -20,18 +20,26 @@ identity allowlist. Do not bind the backend directly to the public Internet.
 
 ## Administrative settings still require owner activation
 
-The integration cannot modify repository settings. No rulesets were returned;
-classic branch protection could not be read. Do not infer enabled protection
-from files in this repository.
+The active Main ruleset (26446611) now protects the default branch: no deletion
+or force push, PR required, linear history, CodeQL (high security findings or
+errors) and Code Quality (errors), no bypass. It appeared during this review;
+this PR did not change it. No matching analysis runs were observed. The merge
+is blocked until the required analyses are configured and successful. Use squash
+or rebase to preserve the required linear history. Never bypass these gates.
 
-Import [.github/main-ruleset.json](../.github/main-ruleset.json) in GitHub
-Settings > Rules > Rulesets and activate it. It targets the default branch,
-requires a PR, resolved review threads and up-to-date successful checks:
-checks, image, secret-scan. Force pushes/deletion are blocked, with no bypass
-actors. The template requires zero approval reviews so a sole maintainer does
-not become unable to merge their own GitHub-authored PR. Human authorization
-still governs agent merges. With a second trusted maintainer, require at least
-one approval and a code-owner review. Verify the ruleset is actually active.
+The integration cannot activate administrative analysis settings and its browser
+is signed out. The owner must enable CodeQL default setup for Python and Code
+Quality in Settings > Security and let the baseline/PR analyses finish. Code
+Quality availability depends on the account's plan. Do not disable a rule just
+to get a merge through. Authorize a concrete alternative if that feature is not
+available.
+
+Import [.github/main-ruleset.json](../.github/main-ruleset.json) as an ADDITIONAL
+ruleset, preserving Main. It adds up-to-date successful checks: checks, image,
+secret-scan; resolved review threads; no force-push/deletion/bypass. The template
+requires zero approval reviews for a sole maintainer, without claiming review
+enforcement. With a second trusted maintainer, require at least one approval
+and a code-owner review. Verify the imported ruleset is actually active.
 
 In Settings > Actions > General, keep default workflow permissions read-only,
 disable Actions-created PR approval, and require approval for all outside

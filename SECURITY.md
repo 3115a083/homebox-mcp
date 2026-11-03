@@ -24,10 +24,14 @@ These are intentional within their documented boundaries, not ignored findings
 or a guarantee that no vulnerabilities exist. No real inventory, photos,
 OAuth state or credentials were included in the reviewed tracked source.
 
-Administrative enforcement is not verified: rulesets API returned no rulesets;
-classic branch-protection access returned 403 for the integration. The browser
-was signed out. CODEOWNERS and .github/main-ruleset.json do not activate rules.
-See docs/PUBLIC_REPOSITORY.md for activation and account-setting checks.
+Administrative state changed during this review: the active Main ruleset
+(26446611) now blocks deletion/force pushes, requires a PR and linear history,
+and requires CodeQL and Code Quality results, with no bypass actors. Those
+settings were read back, not changed by this PR. No corresponding analysis runs
+were observed and PR merging is blocked. The integration cannot activate the
+missing analysis settings; the browser was signed out. Do not bypass or disable
+these gates. The additional CI-ruleset template must not replace Main. See
+docs/PUBLIC_REPOSITORY.md for remaining owner actions.
 
 Runtime controls include OAuth subject allowlisting, proxy-origin secret,
 Host/Origin validation, explicit MCP tools, HTTP body/time/concurrency/rate
