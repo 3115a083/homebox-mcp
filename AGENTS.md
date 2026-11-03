@@ -1,6 +1,7 @@
 # Homebox MCP
 
-Maintain the private repository and private GHCR package. Read README.md and
+The source repository is public by the owner's decision. Keep the GHCR package
+private unless separately authorized. Read README.md and
 docs/DOCKGE.md before deployment changes. Keep current OAuth, origin guard,
 identity allowlist, explicit tool boundary and resource limits intact.
 

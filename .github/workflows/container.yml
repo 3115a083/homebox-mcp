@@ -5,6 +5,8 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+  schedule:
+    - cron: '23 4 * * 1'
 
 permissions:
   contents: read
@@ -15,6 +17,7 @@ concurrency:
 
 jobs:
   checks:
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
@@ -38,7 +41,7 @@ jobs:
           HOMEBOX_TOKEN=ci-placeholder docker compose --env-file .env.example config --quiet
 
   image:
-    if: github.ref != 'refs/heads/main'
+    if: github.event_name != 'schedule' && github.ref != 'refs/heads/main'
     needs: checks
     runs-on: ubuntu-24.04
     timeout-minutes: 25
@@ -62,7 +65,6 @@ jobs:
             org.opencontainers.image.revision=${{ github.sha }}
             org.opencontainers.image.licenses=MIT
           cache-from: type=gha
-          cache-to: type=gha,mode=max
           provenance: false
       - name: Verify built image source and revision
         run: |
@@ -74,9 +76,12 @@ jobs:
           --entrypoint python homebox-mcp:ci -c
           "import os, bridge, gateway; assert os.getuid() == 10001; assert 'upload_item_photo' in gateway.TOOLS; print('Image smoke passed')"
 
+      - name: Verify direct public Git deployment and repeated Dockge update
+        run: bash tests/compose_git.sh
+
   publish:
-    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
-    needs: checks
+    if: github.repository == '3115a083/homebox-mcp' && github.repository_id == '1443134998' && github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    needs: [checks, secret-scan]
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     permissions:
@@ -111,7 +116,7 @@ jobs:
           --security-opt no-new-privileges -e HOMEBOX_TOKEN=ci-placeholder
           --entrypoint python homebox-mcp:ci -c
           "import os, bridge, gateway; assert os.getuid() == 10001; assert 'upload_item_photo' in gateway.TOOLS; print('Image smoke passed')"
-      - name: Check repository and package privacy before publish
+      - name: Check source identity and private package before publish
         if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
         env:
           GH_TOKEN: ${{ github.token }}
@@ -139,3 +144,21 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: python tools/check_registry_privacy.py --require-package
+
+  secret-scan:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Install checksum-pinned Gitleaks
+        shell: bash
+        run: |
+          curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 --retry 2 --max-time 120 https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz --output "$RUNNER_TEMP/gitleaks.tgz"
+          echo "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb  $RUNNER_TEMP/gitleaks.tgz" | sha256sum --check --strict
+          tar -xzf "$RUNNER_TEMP/gitleaks.tgz" -C "$RUNNER_TEMP" gitleaks
+      - name: Scan reachable history without exposing secret values
+        shell: bash
+        run: '"$RUNNER_TEMP/gitleaks" git --log-opts=--all --redact --no-banner .'

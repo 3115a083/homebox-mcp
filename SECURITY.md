@@ -1,33 +1,49 @@
 # Security scope
 
-2026-11-02: private repository verified before implementation. Ruleset API
-reported the private-repository plan restriction; classic branch-protection API
-returned 403 for this integration. Enforcement, reviewer settings, account MFA,
-collaborators, alert settings and Actions defaults are not verified. CODEOWNERS
-and a workflow file do not enable administrative protection.
+2026-11-03: the owner made the source repository public. The GHCR package remains
+private. Anonymous token/pull access was denied; the last successful publisher
+verified private package visibility. Repository visibility does not establish
+package visibility. No workflow changes either visibility setting.
 
-Image publishing is limited to tested main-branch code. PR build jobs have
-read-only repository permission; only the conditional publisher receives
-`packages: write`. No `pull_request_target`, fork secret access or self-hosted
-runner is used. All external Actions and the Python base image are pinned.
+The publisher verifies the canonical source name and numeric repository ID,
+expected public source visibility, and private package owner/name/type before
+and after pushing. A conflicting supplied repository link is rejected. OCI
+source and commit labels are checked before publishing. Only tested main code
+in the canonical repository may receive packages:write. PRs have read-only
+repository permissions, no registry login/push, and do not export build cache.
+No pull_request_target, fork secrets or self-hosted runner is used.
 
-The publisher refuses a non-private repository or existing non-private package,
-requires the existing package's source-repository link, and checks the package
-again after pushing. A newly created GHCR package is private by default. No
-script makes a package public. A concurrent owner visibility change is outside
-the workflow's control; review repository and package visibility separately.
+All external Actions, the Python base image and the Gitleaks binary are pinned.
+The secret-scan job scans reachable Git history with redacted output on PRs,
+main pushes and a weekly schedule. Docker context uses a source allowlist.
+
+The repository-history Gitleaks 8.30.1 review found no leaks. Bandit 1.9.4
+reported four reviewed findings: binding all interfaces inside the container,
+a fixed HTTPS GitHub API URL, and imports/calls for fixed local test scripts.
+These are intentional within their documented boundaries, not ignored findings
+or a guarantee that no vulnerabilities exist. No real inventory, photos,
+OAuth state or credentials were included in the reviewed tracked source.
+
+Administrative state changed during this review: the active Main ruleset
+(26446611) now blocks deletion/force pushes, requires a PR and linear history,
+and requires CodeQL and Code Quality results, with no bypass actors. Those
+settings were read back, not changed by this PR. No corresponding analysis runs
+were observed and PR merging is blocked. The integration cannot activate the
+missing analysis settings; the browser was signed out. Do not bypass or disable
+these gates. The additional CI-ruleset template must not replace Main. See
+docs/PUBLIC_REPOSITORY.md for remaining owner actions.
 
 Runtime controls include OAuth subject allowlisting, proxy-origin secret,
 Host/Origin validation, explicit MCP tools, HTTP body/time/concurrency/rate
 limits, bounded OAuth storage writes, and bounded photo processing. These are
 not a full penetration test, DDoS protection, filesystem quota or NAS audit.
+The health endpoint does not verify Homebox reachability.
 
-Do not use real inventory or credentials in CI. Report problems privately to
-the repository owner. Keep `.env`, registry config, photos and OAuth state out
-of commits, build contexts, artifacts and public logs. Do not grant the MCP
-container Docker socket access or GHCR credentials.
+Keep .env, registry config, photos and OAuth state out of commits, build contexts,
+artifacts and public logs. Do not grant the MCP container Docker socket access
+or GHCR credentials. Report vulnerabilities privately to the owner; never post
+tokens or personal inventory in public issues. Use GitHub private vulnerability
+reporting if the owner has enabled it.
 
-Named-volume backups and rollback need deployment-specific verification. The
-health endpoint does not verify Homebox reachability or inventory correctness.
-The upstream Homebox dependency has its own API/version compatibility surface;
-test locked updates against a disposable Homebox before accepting them.
+Named-volume backups and rollback need deployment-specific verification. Test
+upstream Homebox dependency updates against a disposable Homebox before release.
