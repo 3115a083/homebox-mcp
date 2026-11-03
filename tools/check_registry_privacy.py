@@ -1,4 +1,4 @@
-"""Fail closed before publishing to a public repo or an existing public package.
+"""Verify the authorized public source repository and a private container package.
 
 Reads metadata only; never changes repository or package visibility.
 """
@@ -32,8 +32,11 @@ def check(repository, token, require_package=False, reader=fetch):
     if not token:
         raise ValueError('Missing GitHub token')
     repo = reader('repos/' + repository, token)
-    if not repo or repo.get('private') is not True:
-        raise ValueError('Repository is not verified private')
+    if (not repo or repo.get('id') != 1443134998
+            or repository.lower() != '3115a083/homebox-mcp'
+            or repo.get('full_name', '').lower() != repository.lower()
+            or repo.get('visibility') != 'public' or repo.get('private') is not False):
+        raise ValueError('Authorized public source repository could not be verified')
     owner, name = repository.split('/')
     group = 'orgs' if repo.get('owner', {}).get('type') == 'Organization' else 'users'
     package = reader(f'{group}/{owner}/packages/container/{name.lower()}', token)

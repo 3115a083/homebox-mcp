@@ -4,9 +4,10 @@
 
 Merge the reviewed implementation into `main` and wait for the `Container`
 workflow to complete successfully. The private package is
-`ghcr.io/3115a083/homebox-mcp`. Source repository and package both stay private;
-they have separate visibility settings. The publisher checks both and never
-changes either setting. No additional GitHub publishing token is needed:
+`ghcr.io/3115a083/homebox-mcp`. The source repository is public by the owner's decision. The package remains
+private; it has a separate visibility setting. The publisher verifies the exact
+source repository identity and private package visibility. It never changes
+either setting. No additional GitHub publishing token is needed:
 Actions uses its short-lived `GITHUB_TOKEN`.
 
 The initial version targets Linux amd64, matching the existing x86 NAS stack.

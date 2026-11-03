@@ -1,5 +1,8 @@
-.env
-*.env
-__pycache__/
-*.pyc
-.git/
+*
+!Dockerfile
+!requirements.txt
+!requirements.lock
+!gateway.py
+!bridge.py
+!label_renderer.py
+!import_photos.py

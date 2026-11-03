@@ -1,6 +1,7 @@
 # Homebox MCP
 
-Private, authenticated Homebox MCP gateway for Dockge. Existing Homebox stays
+Authenticated Homebox MCP gateway for Dockge with public source and a private
+GHCR image. Existing Homebox stays
 separate. Updates replace the gateway container, not the inventory database.
 
 ## Update path
@@ -11,6 +12,11 @@ separate. Updates replace the gateway container, not the inventory database.
    `ghcr.io/3115a083/homebox-mcp:latest`, plus `sha-<full-commit>` for rollback.
 4. Press **Update / Aktualisieren** on this stack in Dockge. No local source
    checkout or build is required on the NAS.
+
+Source visibility and container visibility are independent. Public source does
+not grant anonymous pulls of the private image. Read [public repository
+controls](docs/PUBLIC_REPOSITORY.md) for the verified security state and the
+administrative settings that still need activation.
 
 The first package must be built successfully before migrating the running
 stack. A pull request builds/tests without publishing. A main push or manual

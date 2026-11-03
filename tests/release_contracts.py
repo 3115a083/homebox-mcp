@@ -1,5 +1,6 @@
 """Release/privacy regression checks. Synthetic responses; no GitHub requests."""
 from pathlib import Path
+import json
 import re
 import sys
 import unittest
@@ -12,51 +13,61 @@ from check_registry_privacy import check
 
 
 class PrivacyTests(unittest.TestCase):
-    def reader(self, private=True, package=None, kind='User'):
-        return Mock(side_effect=[{'private': private, 'owner': {'type': kind}}, package])
+    def reader(self, private=False, package=None, kind='User'):
+        return Mock(side_effect=[{'id': 1443134998, 'full_name': '3115a083/homebox-mcp', 'visibility': 'private' if private else 'public', 'private': private, 'owner': {'type': kind}}, package])
 
     def test_new_package_allowed_only_before_publish(self):
-        self.assertEqual(check('owner/repo', 'dummy', reader=self.reader()), 'new-package')
+        self.assertEqual(check('3115a083/homebox-mcp', 'dummy', reader=self.reader()), 'new-package')
         with self.assertRaises(ValueError):
-            check('owner/repo', 'dummy', require_package=True, reader=self.reader())
+            check('3115a083/homebox-mcp', 'dummy', require_package=True, reader=self.reader())
 
-    def test_public_repo_rejected_before_package_read(self):
-        reader = self.reader(private=False)
+    def test_unapproved_private_repo_rejected_before_package_read(self):
+        reader = self.reader(private=True)
         with self.assertRaises(ValueError):
-            check('owner/repo', 'dummy', reader=reader)
+            check('3115a083/homebox-mcp', 'dummy', reader=reader)
         self.assertEqual(reader.call_count, 1)
+
+    def test_fork_or_missing_source_metadata_rejected(self):
+        valid = {'id': 1443134998, 'full_name': '3115a083/homebox-mcp',
+                 'visibility': 'public', 'private': False}
+        for change in [{'id': 7}, {'id': None}, {'full_name': 'other/homebox-mcp'},
+                       {'visibility': None}, {'private': None}]:
+            reader = Mock(side_effect=[valid | change])
+            with self.subTest(change=change), self.assertRaises(ValueError):
+                check('3115a083/homebox-mcp', 'dummy', reader=reader)
+            self.assertEqual(reader.call_count, 1)
 
     def test_public_or_unlinked_package_rejected(self):
         for package in [{'visibility': 'public'}, {'visibility': 'internal'},
                         {'visibility': 'private', 'repository': {'full_name': 'other/repo'}}]:
             with self.subTest(package=package), self.assertRaises(ValueError):
-                check('owner/repo', 'dummy', reader=self.reader(package=package))
+                check('3115a083/homebox-mcp', 'dummy', reader=self.reader(package=package))
 
     def test_private_linked_package(self):
-        package = {'visibility': 'private', 'repository': {'full_name': 'Owner/Repo'},
-                   'name': 'repo', 'package_type': 'container', 'owner': {'login': 'Owner'}}
+        package = {'visibility': 'private', 'repository': {'full_name': '3115a083/Homebox-Mcp'},
+                   'name': 'homebox-mcp', 'package_type': 'container', 'owner': {'login': '3115a083'}}
         reader = self.reader(package=package, kind='Organization')
-        self.assertEqual(check('owner/repo', 'dummy', True, reader=reader), 'private-package')
-        self.assertEqual(reader.call_args.args[0], 'orgs/owner/packages/container/repo')
+        self.assertEqual(check('3115a083/homebox-mcp', 'dummy', True, reader=reader), 'private-package')
+        self.assertEqual(reader.call_args.args[0], 'orgs/3115a083/packages/container/homebox-mcp')
 
     def test_documented_response_without_repository_field(self):
-        package = {'visibility': 'private', 'name': 'repo', 'package_type': 'container',
-                   'owner': {'login': 'owner'}}
+        package = {'visibility': 'private', 'name': 'homebox-mcp', 'package_type': 'container',
+                   'owner': {'login': '3115a083'}}
         for link in [{}, {'repository': None}]:
-            self.assertEqual(check('owner/repo', 'dummy', True,
+            self.assertEqual(check('3115a083/homebox-mcp', 'dummy', True,
                                   reader=self.reader(package=package | link)), 'private-package')
 
     def test_wrong_identity_or_conflicting_link_rejected(self):
-        package = {'visibility': 'private', 'name': 'repo', 'package_type': 'container',
-                   'owner': {'login': 'owner'}}
+        package = {'visibility': 'private', 'name': 'homebox-mcp', 'package_type': 'container',
+                   'owner': {'login': '3115a083'}}
         for change in [{'name': 'other'}, {'package_type': 'npm'},
                        {'owner': {'login': 'other'}}, {'owner': {}},
                        {'repository': {'full_name': 'other/repo'}}]:
             with self.subTest(change=change), self.assertRaises(ValueError):
-                check('owner/repo', 'dummy', True, reader=self.reader(package=package | change))
+                check('3115a083/homebox-mcp', 'dummy', True, reader=self.reader(package=package | change))
 
     def test_missing_token_and_invalid_repository_do_not_make_requests(self):
-        for repository, token in [('owner/repo', ''), ('owner/repo?x=1', 'dummy')]:
+        for repository, token in [('3115a083/homebox-mcp', ''), ('3115a083/homebox-mcp?x=1', 'dummy')]:
             reader = Mock()
             with self.assertRaises(ValueError):
                 check(repository, token, reader=reader)
@@ -75,12 +86,17 @@ class ReleaseTests(unittest.TestCase):
         self.assertEqual(self.workflow['permissions'], {'contents': 'read'})
         self.assertEqual(jobs['image']['permissions'], {'contents': 'read'})
         self.assertEqual(jobs['publish']['permissions'], {'contents': 'read', 'packages': 'write'})
+        self.assertIn("github.repository == '3115a083/homebox-mcp'", jobs['publish']['if'])
+        self.assertIn("github.repository_id == '1443134998'", jobs['publish']['if'])
         self.assertIn("github.ref == 'refs/heads/main'", jobs['publish']['if'])
-        self.assertIn("github.event_name != 'pull_request'", jobs['publish']['if'])
+        self.assertIn("github.event_name == 'push'", jobs['publish']['if'])
+        self.assertIn("github.event_name == 'workflow_dispatch'", jobs['publish']['if'])
         self.assertNotIn('pull_request_target', self.workflow['on'])
-        for name in ['image', 'publish']:
-            self.assertEqual(jobs[name]['needs'], 'checks')
+        self.assertEqual(jobs['image']['needs'], 'checks')
+        self.assertEqual(jobs['publish']['needs'], ['checks', 'secret-scan'])
         self.assertEqual(self.workflow['on']['push']['branches'], ['main'])
+        for step in jobs['image']['steps']:
+            self.assertNotIn('cache-to', step.get('with', {}))
 
     def test_immutable_action_pins_and_no_checkout_credential_persistence(self):
         for job in self.workflow['jobs'].values():
@@ -130,6 +146,30 @@ class ReleaseTests(unittest.TestCase):
         lock = dict(re.findall(r'^([A-Za-z0-9_.-]+)==([^\s]+)', (ROOT / 'gateway/requirements.lock').read_text(), re.M))
         for name, version in re.findall(r'^([A-Za-z0-9_.-]+)==([^\s]+)', (ROOT / 'gateway/requirements.txt').read_text(), re.M):
             self.assertEqual(lock[name.lower()], version)
+
+    def test_security_scan_and_ruleset_contract(self):
+        security = self.workflow
+        self.assertEqual(security['permissions'], {'contents': 'read'})
+        steps = security['jobs']['secret-scan']['steps']
+        self.assertEqual(steps[0]['with']['fetch-depth'], '0')
+        self.assertEqual(steps[0]['with']['persist-credentials'], 'false')
+        self.assertRegex(steps[0]['uses'], r'@[a-f0-9]{40}$')
+        self.assertIn('sha256sum --check --strict', steps[1]['run'])
+        self.assertIn('--log-opts=--all --redact', steps[-1]['run'])
+        rules = json.loads((ROOT / '.github/main-ruleset.json').read_text())
+        self.assertEqual(rules['enforcement'], 'active')
+        self.assertEqual(rules['bypass_actors'], [])
+        kinds = {r['type'] for r in rules['rules']}
+        self.assertTrue({'pull_request', 'non_fast_forward', 'deletion', 'required_status_checks'} <= kinds)
+        checks = next(r['parameters'] for r in rules['rules'] if r['type'] == 'required_status_checks')
+        self.assertTrue(checks['strict_required_status_checks_policy'])
+        self.assertEqual({r['context'] for r in checks['required_status_checks']}, {'checks', 'image', 'secret-scan'})
+
+    def test_build_context_is_explicit_source_allowlist(self):
+        lines = (ROOT / 'gateway/.dockerignore').read_text().splitlines()
+        self.assertEqual(lines[0], '*')
+        self.assertEqual(set(lines[1:]), {'!Dockerfile', '!requirements.txt', '!requirements.lock',
+                                         '!gateway.py', '!bridge.py', '!label_renderer.py', '!import_photos.py'})
 
 
 if __name__ == '__main__':
