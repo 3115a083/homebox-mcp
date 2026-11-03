@@ -4,6 +4,13 @@ Authenticated Homebox MCP gateway for Dockge with public source and a private
 GHCR image. Existing Homebox stays
 separate. Updates replace the gateway container, not the inventory database.
 
+## Direct public Dockerfile deployment
+
+To deploy from a public GitHub link without registry authentication, use
+[compose.git.yaml](compose.git.yaml) and [the direct-build guide](docs/DOCKERFILE_DEPLOY.md).
+Dockge triggers the build automatically on the NAS. This variant uses
+`pull_policy: build`; it does not pull a prebuilt application image.
+
 ## Update path
 
 1. Review and merge a change into `main`.

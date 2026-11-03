@@ -138,6 +138,23 @@ class ReleaseTests(unittest.TestCase):
         self.assertEqual(self.compose['services']['photo-import']['profiles'], ['maintenance'])
         self.assertNotIn('name', self.compose)
 
+    def test_public_dockerfile_deployment_needs_no_registry_image(self):
+        direct = yaml.load((ROOT / 'compose.git.yaml').read_text(), Loader=yaml.BaseLoader)
+        self.assertNotIn('name', direct)
+        for name, service in direct['services'].items():
+            self.assertNotIn('image', service)
+            self.assertEqual(service['pull_policy'], 'build')
+            self.assertEqual(service['build']['context'],
+                             'https://github.com/3115a083/homebox-mcp.git#${HOMEBOX_GIT_REF:-main}:gateway')
+            expected = self.compose['services'][name].copy()
+            expected.pop('image')
+            expected.pop('pull_policy')
+            actual = service.copy()
+            actual.pop('build')
+            actual.pop('pull_policy')
+            self.assertEqual(actual, expected)
+        self.assertEqual(direct['volumes'], self.compose['volumes'])
+
     def test_base_image_and_direct_dependency_versions_are_pinned(self):
         dockerfile = (ROOT / 'gateway/Dockerfile').read_text()
         self.assertRegex(dockerfile, r'FROM python:3\.12-slim@sha256:[a-f0-9]{64}')

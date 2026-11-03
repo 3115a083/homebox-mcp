@@ -76,6 +76,9 @@ jobs:
           --entrypoint python homebox-mcp:ci -c
           "import os, bridge, gateway; assert os.getuid() == 10001; assert 'upload_item_photo' in gateway.TOOLS; print('Image smoke passed')"
 
+      - name: Verify direct public Git deployment and repeated Dockge update
+        run: bash tests/compose_git.sh
+
   publish:
     if: github.repository == '3115a083/homebox-mcp' && github.repository_id == '1443134998' && github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     needs: [checks, secret-scan]
