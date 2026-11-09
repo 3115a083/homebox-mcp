@@ -42,3 +42,11 @@ read tools by default; writes require explicit names in `FERRET_WRITE_TOOLS`.
 Future upstream tools and the broad `remove` tool stay blocked. The remote
 server's own key permissions remain a separate trust boundary. Neither
 `/healthz` nor offline CI tests can verify a live Ferret connection.
+
+Homebox attachment exports are read-only and require an exact item match and
+an attachment ID present on that item. They do not accept arbitrary filesystem
+paths or URLs. Individual responses are capped at 192 KiB of source data and
+whole downloads at 32 MiB, with a SHA-256 for integrity verification. Invoice
+contents may include personal information, so avoid exporting them through chat
+unless necessary. Media is not copied to Ferret automatically; a later direct
+server-side importer should be used for bulk transfer.
