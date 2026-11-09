@@ -189,8 +189,11 @@ test -n "$CID" && sudo docker run --rm --network "container:$CID" --env-file .en
 
 The default is a **read-only preview**. The summary prints
 `maintenance_write_available`, `category_write_available` and
-`location_write_available`. If the Ferret MCP endpoint advertises
-`save_maintenance`, pass `--apply` to schedule tasks. It will **not**
+`location_write_available`. Both modern tool names (`save_maintenance`,
+`save_category`, `save_location`) and legacy Ferret tool names
+(`add_maintenance`, `create_category`, `create_location`) are supported;
+`uses_legacy_maintenance_tool=1` indicates the older scheduling name.
+If Ferret advertises either maintenance write tool, pass `--apply` to schedule tasks. It will **not**
 claim a schedule exists when the server only allows item notes or
 `create_item`: in that case it exits before changes.
 
