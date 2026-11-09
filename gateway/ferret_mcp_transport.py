@@ -96,6 +96,33 @@ class FerretMCP:
             raise ValueError("Unsupported Ferret MCP protocol")
         self._post({"jsonrpc": "2.0", "method": "notifications/initialized"})
 
+    def available_tools(self) -> frozenset[str]:
+        """Read the server-advertised tool list before any migration writes."""
+        names = set()
+        cursor = None
+        for _ in range(20):
+            self.sequence += 1
+            args = {"cursor": cursor} if cursor else {}
+            envelope = self._post({
+                "jsonrpc": "2.0", "id": self.sequence,
+                "method": "tools/list", "params": args,
+            })
+            if not isinstance(envelope, dict) or not isinstance(envelope.get("result"), dict):
+                raise ValueError("Could not inspect Ferret MCP tool permissions")
+            result = envelope["result"]
+            if not isinstance(result.get("tools"), list):
+                raise ValueError("Unexpected Ferret MCP tool list")
+            for tool in result["tools"]:
+                if isinstance(tool, dict) and isinstance(tool.get("name"), str):
+                    names.add(tool["name"])
+            next_cursor = result.get("nextCursor")
+            if not next_cursor:
+                return frozenset(names)
+            if next_cursor == cursor:
+                raise ValueError("Ferret MCP tool pagination stalled")
+            cursor = next_cursor
+        raise ValueError("Ferret MCP tool list exceeded pagination limit")
+
     def call(self, name: str, arguments: dict | None = None):
         self.sequence += 1
         envelope = self._post({
