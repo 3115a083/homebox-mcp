@@ -123,6 +123,28 @@ TECH_CATEGORIES = (
 )
 
 
+def create_tool(available: frozenset[str], modern: str, legacy: str) -> str | None:
+    """Newer Ferret uses save_*, older releases use create_*/add_*."""
+    if modern in available:
+        return modern
+    if legacy in available:
+        return legacy
+    return None
+
+
+def created_id(result: dict, *, kind: str) -> str:
+    """Only accept an unambiguous, explicitly returned identifier."""
+    if isinstance(result, dict) and isinstance(result.get("id"), str) and result["id"]:
+        return result["id"]
+    if kind == "location":
+        locations = result.get("locations") if isinstance(result, dict) else None
+        if isinstance(locations, list) and len(locations) == 1:
+            location = locations[0]
+            if isinstance(location, dict) and isinstance(location.get("id"), str) and location["id"]:
+                return location["id"]
+    raise ValueError("Ferret did not confirm created " + kind + " id")
+
+
 def all_items(client):
     out = []
     for offset in range(0, 10000, 200):
@@ -144,7 +166,9 @@ def flatten(nodes):
 
 def create_structure(client, available, items, *, apply, summary):
     # Missing optional tools must never block maintenance creation.
-    if not {"save_location", "update_item"} <= available:
+    location_tool = create_tool(available, "save_location", "create_location")
+    category_tool = create_tool(available, "save_category", "create_category")
+    if not location_tool or "update_item" not in available:
         summary["location_structure_unavailable"] = 1
     else:
         tree = client.call("list_locations")
@@ -165,16 +189,17 @@ def create_structure(client, available, items, *, apply, summary):
             summary["would_move_to_review_location"] = len(candidates)
             if apply and candidates:
                 if bucket is None:
-                    bucket = client.call("save_location", {
+                    created = client.call(location_tool, {
                         "name": "Noch einzuordnen", "propertyId": prop["id"],
                         "parentId": room["id"],
                     })
+                    bucket = {"id": created_id(created, kind="location")}
                     summary["locations_created"] += 1
                 for item in candidates:
                     client.call("update_item", {"id": item["id"], "locationId": bucket["id"]})
                     summary["moved_to_review_location"] += 1
 
-    if not {"save_category", "update_item"} <= available:
+    if not category_tool or "update_item" not in available:
         summary["technical_categories_unavailable"] = 1
         return
     categories = client.call("list_categories").get("categories") or []
@@ -186,8 +211,8 @@ def create_structure(client, available, items, *, apply, summary):
         if name not in known:
             summary["would_create_categories"] += 1
             if apply:
-                created = client.call("save_category", {"name": name, "parentId": parent})
-                known[name] = created["id"]
+                created = client.call(category_tool, {"name": name, "parentId": parent})
+                known[name] = created_id(created, kind="category")
                 summary["categories_created"] += 1
     for item in items:
         # Preserve specific existing categories: Computers, Cameras, etc.
@@ -228,19 +253,19 @@ def prepare_tasks(client, items, *, apply, available, summary):
         else:
             missing.append((item, task))
     summary["would_create_maintenance"] = len(missing)
-    if apply and missing and "save_maintenance" not in available:
+    maintenance_tool = create_tool(available, "save_maintenance", "add_maintenance")
+    if apply and missing and not maintenance_tool:
         # Never claim a reminder exists when it was only put in item notes.
-        raise ValueError("Ferret MCP lacks save_maintenance; no schedule was written. Enable/upgrade the Ferret MCP write capability.")
+        raise ValueError("Ferret MCP lacks save_maintenance/add_maintenance; no schedule was written.")
     if not apply:
         return
     for item, task in missing:
         notes = task.steps + ("\nQuelle: " + task.source if task.source else "")
-        response = client.call("save_maintenance", {
+        response = client.call(maintenance_tool, {
             "itemId": item["id"], "title": task.title, "notes": notes,
             "intervalCount": task.count, "intervalUnit": task.unit,
         })
-        if not response.get("id"):
-            raise ValueError("Ferret did not confirm created maintenance task")
+        created_id(response, kind="maintenance task")
         summary["scheduled_maintenance"] += 1
 
 
@@ -260,16 +285,22 @@ def main(argv=None):
         summary = Counter()
         with FerretMCP(url, token) as client:
             available = client.available_tools()
-            summary["maintenance_write_available"] = int("save_maintenance" in available)
-            summary["category_write_available"] = int("save_category" in available)
-            summary["location_write_available"] = int("save_location" in available)
+            maintenance_tool = create_tool(available, "save_maintenance", "add_maintenance")
+            summary["maintenance_write_available"] = int(bool(maintenance_tool))
+            summary["category_write_available"] = int(
+                bool(create_tool(available, "save_category", "create_category"))
+            )
+            summary["location_write_available"] = int(
+                bool(create_tool(available, "save_location", "create_location"))
+            )
+            summary["uses_legacy_maintenance_tool"] = int(maintenance_tool == "add_maintenance")
             items = all_items(client)
             summary["inventory_count"] = len(items)
             if not args.structure_only:
                 # Perform all preflight reads before any optional structure write.
                 prepare_tasks(client, items, apply=False, available=available, summary=summary)
-                if args.apply and summary["would_create_maintenance"] and "save_maintenance" not in available:
-                    raise ValueError("No save_maintenance write tool exposed by Ferret MCP. Maintenance notes already exist, but scheduled reminders cannot be created.")
+                if args.apply and summary["would_create_maintenance"] and not maintenance_tool:
+                    raise ValueError("No maintenance write tool exposed by Ferret MCP. Maintenance notes exist, but reminders cannot be created.")
             if args.structure or args.structure_only:
                 create_structure(client, available, items, apply=False, summary=summary)
             if args.apply:
