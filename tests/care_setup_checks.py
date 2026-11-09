@@ -130,6 +130,24 @@ class Tests(unittest.TestCase):
         self.assertEqual(again["locations_created"], 0)
         self.assertEqual(again["categories_created"], 0)
 
+    def test_template_patterns_match_compound_model_names(self):
+        import re
+        examples = [
+            "BambuLab X1C 3D Drucker",
+            "Ninja Luxe Café Premier Kaffeemaschine",
+            "OutIn Fino",
+            "Comfee Luftentfeuchter MDDF-20DEN7-WF",
+            "IKEA STARKVIND Luftreiniger",
+            "SwitchBot Luftreiniger mit Tischplatte",
+            "EF ECOFLOW RIVER 2 MAX Tragbare Powerstation",
+            "Severin Doppel-Langschlitztoaster, Edelstahl",
+            "Klarstein Bolero Smart Deckenventilator",
+            "Server",
+        ]
+        self.assertEqual(len(examples), len(care.RULES))
+        for rule, name in zip(care.RULES, examples):
+            self.assertRegex(name, re.compile(rule.pattern, flags=re.I))
+
     def test_sourced_rules_require_no_personal_ids(self):
         self.assertGreaterEqual(len(care.RULES), 9)
         for rule in care.RULES:
