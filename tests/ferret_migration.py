@@ -143,6 +143,22 @@ class MockInventory:
 
 
 class MigrationTests(unittest.TestCase):
+    def test_diagnostic_reports_phase_without_credentials(self):
+        import unittest.mock
+        secret = "ferret_testsecret_123"
+        with unittest.mock.patch.object(m, "ferret_items", side_effect=ValueError(
+                "Invalid response " + secret)):
+            fake = MockInventory()
+            hb, ferret = fake.clients()
+            with hb, ferret, self.assertRaisesRegex(ValueError, "Ferret-Artikel abrufen"):
+                m.migrate(hb, ferret, apply=False)
+        msg = m.diagnostic_message(
+            ValueError("Access failed: " + secret + "\\nagain"),
+            {"HOMEBOX_TOKEN": "homebox_secret", "FERRET_MCP_TOKEN": secret},
+        )
+        self.assertNotIn(secret, msg)
+        self.assertIn("[REDACTED]", msg)
+
     def test_configuration(self):
         e = {"HOMEBOX_URL": "http://homebox:7745", "HOMEBOX_TOKEN": "abc",
              "FERRET_MCP_URL": "https://ferret.example.invalid/mcp",
