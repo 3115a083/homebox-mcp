@@ -29,6 +29,47 @@ address reachable by your proxy; the sample defaults to loopback. The OAuth
 provider callback is based on `MCP_PUBLIC_URL`; retain existing app settings
 when migrating. Existing installations keep their `.env` and state volume.
 
+## Optional Ferret MCP integration
+
+The same OAuth-protected `/mcp` endpoint can also expose tools from your remote
+Ferret home-inventory MCP server. It connects directly over HTTPS from the
+gateway container, using a separate static bearer key; ChatGPT still uses the
+gateway's existing OAuth login. No OpenAI API key, OAuth change, separate proxy,
+or Docker image build on the NAS is needed.
+
+In the **existing Dockge stack's local `.env`**, add (use your own endpoint):
+
+```dotenv
+FERRET_MCP_URL=https://ferret.example.invalid/mcp
+FERRET_MCP_TOKEN=<raw-Ferret-API-key>
+# Optional, only for operations you explicitly want to allow:
+FERRET_WRITE_TOOLS=
+```
+
+Both URL and token are required; leaving all three variables unset keeps the
+original Homebox-only behavior. Use the raw bearer token, without `Bearer `.
+The URL must be HTTPS. Do not paste keys into chat or commit them to GitHub.
+The `compose.yaml` already passes `.env` into the gateway, so **no Compose
+changes** are necessary for this feature.
+
+Ferret tools appear alongside Homebox tools, prefixed `ferret_`, for example
+`ferret_search_inventory`, `ferret_list_items`, and `ferret_get_item`.
+Only reviewed read-only names are enabled by default; changes to Ferret's own
+available tools do not grant additional access automatically. The broad
+`ferret_remove` operation is intentionally blocked. For named write access,
+set for example `FERRET_WRITE_TOOLS=create_item,update_item` and redeploy. An
+unknown tool name in that variable causes startup to fail safely. Use a
+read-only Ferret API key if you only need queries. An enabled write tool acts
+with the permissions of the configured Ferret key, so confirm destructive
+operations independently.
+
+After merging the reviewed change to `main` and a successful image publication,
+use **Update / Aktualisieren** in Dockge. Keep the same stack, existing OAuth
+signing key, `mcp_state` volume, and proxy settings. Test tool discovery and a
+read-only query. A missing/invalid Ferret key may make Ferret tool discovery
+unavailable, but does not intentionally disable Homebox. `/healthz` checks
+the gateway process only, not the Ferret backend.
+
 ## Boundaries
 
 - OAuth identity allowlist and an independent proxy origin secret are required.
