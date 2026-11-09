@@ -5,7 +5,7 @@ import sys
 
 root = Path(__file__).resolve().parents[1]
 checks = ['request_limits.py', 'photo_upload.py', 'deletion_guards.py',
-          'ferret_proxy.py',
+          'ferret_proxy.py', 'attachment_export.py',
           'gateway_smoke.py', 'release_contracts.py']
 for check in checks:
     print('CHECK', check, flush=True)
