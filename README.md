@@ -129,13 +129,18 @@ are flagged rather than fabricated. A bulk-price value with quantity over
 one is preserved in notes, not misrepresented as a unit price.
 
 In the **local Dockge stack's .env**, retain the existing
-\`HOMEBOX_URL\`, \`HOMEBOX_TOKEN\`, \`FERRET_MCP_URL\`, \`FERRET_MCP_TOKEN\`.
-The Ferret API key must have **write** permission. The tool-specific
-\`FERRET_WRITE_TOOLS\` allowlist is unrelated to this isolated REST
-migration. By default, the REST API endpoint is inferred from
-\`FERRET_MCP_URL\` by replacing \`/mcp\` with \`/api/v1\`. If a reverse
-proxy exposes them at different base paths, set \`FERRET_API_URL\` to the
-HTTPS Ferret REST API base URL ending in \`/api/v1\`.
+`HOMEBOX_URL`, `HOMEBOX_TOKEN`, `FERRET_MCP_URL`, `FERRET_MCP_TOKEN`.
+The Ferret key must have **write** permission. The default destination
+transport is now **Ferret MCP**, using the authenticated `FERRET_MCP_URL`
+directly for listing, creating, and photo uploads. This also works if a
+reverse proxy allows `/mcp` but returns HTTP 401 for `/api/v1/me`.
+
+Ferret's MCP `add_photo` may run its normal automatic image analysis; the
+migration does not copy receipts, PDFs or documents, and never shares file
+bytes with ChatGPT. Only if REST API access is separately working, use
+`--transport rest` and optionally `FERRET_API_URL` for the HTTPS REST
+base path. `FERRET_WRITE_TOOLS` only controls the public Homebox gateway's
+proxy tool allowlist, not this isolated migration process.
 
 After merging this change, wait for the **green published main image**,
 update the Compose definition to include the new maintenance service, then

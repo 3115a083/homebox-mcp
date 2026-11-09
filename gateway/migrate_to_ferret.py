@@ -18,6 +18,7 @@ import sys
 from urllib.parse import urlsplit, urlunsplit
 
 import httpx
+from ferret_mcp_transport import FerretMCP
 
 MAX_IMAGE_BYTES = 16 * 1024 * 1024
 SOURCE_LIMIT = 10_000
@@ -491,17 +492,25 @@ def main(argv=None, *, env=None):
     parser.add_argument("--apply", action="store_true", help="Write to Ferret. Without this flag: dry-run only.")
     parser.add_argument("--limit", type=int, default=0, help="Only process first N items (0: all)")
     parser.add_argument("--items-only", action="store_true", help="Skip photos; never import documents")
+    parser.add_argument("--transport", choices=("mcp", "rest"), default="mcp",
+                        help="Ferret destination API: mcp (default) works when REST requires a separate login")
     args = parser.parse_args(argv)
     if args.limit < 0:
         parser.error("--limit must be >= 0")
     try:
-        hb_url, f_url, hb_token, f_token = connection_settings(dict(env or os.environ))
+        settings = dict(env or os.environ)
+        hb_url, f_url, hb_token, f_token = connection_settings(settings)
         with httpx.Client(base_url=hb_url, headers={"Authorization": hb_token},
-                          timeout=45, follow_redirects=False) as hb, \
-             httpx.Client(base_url=f_url, headers={"Authorization": f"Bearer {f_token}"},
-                          timeout=90, follow_redirects=False) as f:
-            counts, errors = migrate(hb, f, apply=args.apply, limit=args.limit,
-                                     photos=not args.items_only)
+                          timeout=45, follow_redirects=False) as hb:
+            if args.transport == "rest":
+                destination = httpx.Client(
+                    base_url=f_url, headers={"Authorization": f"Bearer {f_token}"},
+                    timeout=90, follow_redirects=False)
+            else:
+                destination = FerretMCP(settings["FERRET_MCP_URL"], f_token)
+            with destination as f:
+                counts, errors = migrate(hb, f, apply=args.apply, limit=args.limit,
+                                         photos=not args.items_only)
         print(("APPLY" if args.apply else "DRY RUN") + " - " + json.dumps(dict(counts), ensure_ascii=False, sort_keys=True))
         if errors:
             for error in errors[:30]:
