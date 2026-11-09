@@ -178,6 +178,26 @@ class MigrationTests(unittest.TestCase):
         self.assertEqual(counts["would_upload_photos"], 2)
         self.assertFalse([x for x in fake.events if x[0] == "POST"])
 
+    def test_dry_run_with_existing_item_does_not_upload_photo(self):
+        fake = MockInventory()
+        fake.dest.append({
+            "id": "already-1",
+            "name": "BambuLab X1C 3D Drucker",
+            "notes": "Homebox-ID: 000-001\n\nHomebox-Objekt-ID: hb001",
+        })
+        hb, ferret = fake.clients()
+        with hb, ferret:
+            counts, errors = m.migrate(hb, ferret, apply=False)
+        self.assertFalse(errors, errors)
+        self.assertEqual(counts["already_imported"], 1)
+        self.assertEqual(counts["would_create"], 1)
+        self.assertEqual(counts["would_upload_photos"], 2)
+        self.assertEqual(len(fake.dest), 1)
+        self.assertEqual(fake.attachments, {})
+        self.assertFalse([event for event in fake.events if event[0] == "POST"])
+        self.assertFalse([event for event in fake.events
+                          if event[0] == "GET" and "/attachments/" in event[1]])
+
     def test_apply_then_repeat_without_duplicates_or_receipts(self):
         fake = MockInventory()
         hb, ferret = fake.clients()

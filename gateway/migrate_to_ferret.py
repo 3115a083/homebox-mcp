@@ -468,6 +468,11 @@ def migrate(hb: httpx.Client, ferret: httpx.Client, *, apply=False, limit=0, pho
                 if any(str(f).startswith("homebox-" + str(image["id"]) + ".") for f in filenames if f):
                     counts["already_uploaded_photos"] += 1
                     continue
+                if not apply:
+                    # An existing Ferret item may still need photos: dry-run
+                    # must never call upload endpoints, even in this branch.
+                    counts["would_upload_photos"] += 1
+                    continue
                 try:
                     raw, filename = read_photo(hb, item, image)
                     result = request(ferret, "POST", f"items/{existing['id']}/attachments",
