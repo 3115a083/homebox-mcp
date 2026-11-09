@@ -9,7 +9,6 @@ from pathlib import Path
 import httpx
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "gateway"))
-sys.path.insert(0, str(Path(__file__).resolve().parent))
 import migrate_to_ferret as m
 from ferret_mcp_transport import FerretMCP
 from ferret_migration import MockInventory
