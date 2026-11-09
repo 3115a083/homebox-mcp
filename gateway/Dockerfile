@@ -6,7 +6,7 @@ COPY requirements.txt requirements.lock .
 RUN pip install --no-cache-dir -r requirements.lock \
     && useradd --uid 10001 --create-home app \
     && mkdir -p /state /labels && chown app:app /state /labels
-COPY gateway.py bridge.py label_renderer.py import_photos.py migrate_to_ferret.py ./
+COPY gateway.py bridge.py label_renderer.py import_photos.py migrate_to_ferret.py ferret_mcp_transport.py ./
 ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1
 USER app
 CMD ["python", "/app/gateway.py"]
