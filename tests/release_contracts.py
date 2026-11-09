@@ -1,4 +1,4 @@
-"""Release/privacy regression checks. Synthetic responses; no GitHub requests."""
+"""Release/publication regression checks. Synthetic responses; no GitHub requests."""
 from pathlib import Path
 import re
 import sys
@@ -8,59 +8,57 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'tools'))
-from check_registry_privacy import check
+from check_registry_publication import check
 
 
-class PrivacyTests(unittest.TestCase):
-    def reader(self, private=True, package=None, kind='User'):
-        return Mock(side_effect=[{'private': private, 'owner': {'type': kind}}, package])
+class PublicationTests(unittest.TestCase):
+    def reader(self, public=True, package=None, kind='User'):
+        return Mock(side_effect=[{'private': not public, 'owner': {'type': kind},
+                                  'full_name': 'owner/repo'}, package])
 
     def test_new_package_allowed_only_before_publish(self):
         self.assertEqual(check('owner/repo', 'dummy', reader=self.reader()), 'new-package')
         with self.assertRaises(ValueError):
             check('owner/repo', 'dummy', require_package=True, reader=self.reader())
 
-    def test_public_repo_rejected_before_package_read(self):
-        reader = self.reader(private=False)
+    def test_private_repo_rejected_before_package_read(self):
+        reader = self.reader(public=False)
         with self.assertRaises(ValueError):
             check('owner/repo', 'dummy', reader=reader)
         self.assertEqual(reader.call_count, 1)
 
-    def test_public_or_unlinked_package_rejected(self):
-        for package in [{'visibility': 'public'}, {'visibility': 'internal'},
-                        {'visibility': 'private', 'repository': {'full_name': 'other/repo'}}]:
-            with self.subTest(package=package), self.assertRaises(ValueError):
-                check('owner/repo', 'dummy', reader=self.reader(package=package))
+    def test_public_and_private_packages_can_be_published(self):
+        pkg = {'name': 'repo', 'package_type': 'container',
+               'owner': {'login': 'owner'}, 'repository': {'full_name': 'Owner/Repo'}}
+        self.assertEqual(check('owner/repo', 'dummy', reader=self.reader(package=pkg | {'visibility': 'public'})),
+                         'public-package')
+        self.assertEqual(check('owner/repo', 'dummy', reader=self.reader(package=pkg | {'visibility': 'private'})),
+                         'private-package-needs-manual-public-setting')
+        self.assertEqual(check('owner/repo', 'dummy', require_package=True,
+                               reader=self.reader(package=pkg | {'visibility': 'public'}, kind='Organization')),
+                         'public-package')
 
-    def test_private_linked_package(self):
-        package = {'visibility': 'private', 'repository': {'full_name': 'Owner/Repo'},
-                   'name': 'repo', 'package_type': 'container', 'owner': {'login': 'Owner'}}
-        reader = self.reader(package=package, kind='Organization')
-        self.assertEqual(check('owner/repo', 'dummy', True, reader=reader), 'private-package')
-        self.assertEqual(reader.call_args.args[0], 'orgs/owner/packages/container/repo')
+    def test_wrong_identity_or_visibility_rejected(self):
+        pkg = {'name': 'repo', 'package_type': 'container',
+               'owner': {'login': 'owner'}, 'visibility': 'public'}
+        for update in [
+            {'name': 'other'}, {'package_type': 'npm'}, {'owner': {'login': 'other'}},
+            {'owner': {}}, {'visibility': 'internal'},
+            {'repository': {'full_name': 'other/repo'}},
+        ]:
+            with self.subTest(update=update), self.assertRaises(ValueError):
+                check('owner/repo', 'dummy', reader=self.reader(package=pkg | update))
 
-    def test_documented_response_without_repository_field(self):
-        package = {'visibility': 'private', 'name': 'repo', 'package_type': 'container',
-                   'owner': {'login': 'owner'}}
-        for link in [{}, {'repository': None}]:
-            self.assertEqual(check('owner/repo', 'dummy', True,
-                                  reader=self.reader(package=package | link)), 'private-package')
-
-    def test_wrong_identity_or_conflicting_link_rejected(self):
-        package = {'visibility': 'private', 'name': 'repo', 'package_type': 'container',
-                   'owner': {'login': 'owner'}}
-        for change in [{'name': 'other'}, {'package_type': 'npm'},
-                       {'owner': {'login': 'other'}}, {'owner': {}},
-                       {'repository': {'full_name': 'other/repo'}}]:
-            with self.subTest(change=change), self.assertRaises(ValueError):
-                check('owner/repo', 'dummy', True, reader=self.reader(package=package | change))
-
-    def test_missing_token_and_invalid_repository_do_not_make_requests(self):
+    def test_missing_repository_identity_and_token(self):
         for repository, token in [('owner/repo', ''), ('owner/repo?x=1', 'dummy')]:
             reader = Mock()
             with self.assertRaises(ValueError):
                 check(repository, token, reader=reader)
             reader.assert_not_called()
+        reader = Mock(side_effect=[{'private': False, 'full_name': 'wrong/repo'}, None])
+        with self.assertRaises(ValueError):
+            check('owner/repo', 'dummy', reader=reader)
+        reader.assert_called_once()
 
 
 class ReleaseTests(unittest.TestCase):
@@ -97,10 +95,10 @@ class ReleaseTests(unittest.TestCase):
                 self.assertNotIn('docker/login-action', step.get('uses', ''))
         steps = self.workflow['jobs']['publish']['steps']
         smoke = next(i for i, s in enumerate(steps) if s.get('name', '').startswith('Smoke-test'))
-        privacy = next(i for i, s in enumerate(steps) if s.get('run') == 'python tools/check_registry_privacy.py')
+        metadata = next(i for i, s in enumerate(steps) if s.get('run') == 'python tools/check_registry_publication.py')
         push = next(i for i, s in enumerate(steps) if 'docker push' in s.get('run', ''))
         self.assertLess(smoke, push)
-        self.assertLess(privacy, push)
+        self.assertLess(metadata, push)
         self.assertTrue(steps[-1]['run'].endswith('--require-package'))
         labels = next(i for i, s in enumerate(steps) if s.get('name') == 'Verify built image source and revision')
         self.assertLess(labels, push)
