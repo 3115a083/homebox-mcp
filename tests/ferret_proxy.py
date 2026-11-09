@@ -2,6 +2,7 @@
 import asyncio
 import os
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -102,17 +103,30 @@ class FerretTests(unittest.TestCase):
         def create_item(name: str) -> dict:
             return {'created': name}
 
-        for enabled_writes, expected_write in [('', False), ('create_item', True)]:
-            with self.subTest(writes=enabled_writes):
-                with patch.dict(os.environ, {'FERRET_MCP_URL': URL,
-                                             'FERRET_MCP_TOKEN': 'fake-key',
-                                             'FERRET_WRITE_TOOLS': enabled_writes}), \
-                     patch('gateway.create_ferret_proxy', return_value=fake):
-                    server, _ = build_server()
-                    names = set(asyncio.run(server.get_tools()))
-                    self.assertIn('ferret_search_inventory', names)
-                    self.assertEqual('ferret_create_item' in names, expected_write)
-                    self.assertNotIn('ferret_remove', names)
+        with tempfile.TemporaryDirectory() as state:
+            runtime = {
+                'MCP_PUBLIC_URL': 'https://mcp.example.invalid',
+                'OAUTH_CLIENT_ID': 'synthetic-client',
+                'OAUTH_CLIENT_SECRET': 'synthetic-secret',
+                'OAUTH_ALLOWED_SUBJECTS': '12345',
+                'OAUTH_SIGNING_KEY': 's' * 64,
+                'PANGOLIN_ORIGIN_SECRET': 'o' * 64,
+                'HOMEBOX_URL': 'http://127.0.0.1:1',
+                'HOMEBOX_TOKEN': 'synthetic',
+                'HOMEBOX_PUBLIC_URL': 'https://inventory.example.invalid',
+                'XDG_DATA_HOME': state,
+                'FERRET_MCP_URL': URL,
+                'FERRET_MCP_TOKEN': 'fake-key',
+            }
+            for enabled_writes, expected_write in [('', False), ('create_item', True)]:
+                with self.subTest(writes=enabled_writes):
+                    with patch.dict(os.environ, runtime | {'FERRET_WRITE_TOOLS': enabled_writes}), \
+                         patch('gateway.create_ferret_proxy', return_value=fake):
+                        server, _ = build_server()
+                        names = set(asyncio.run(server.get_tools()))
+                        self.assertIn('ferret_search_inventory', names)
+                        self.assertEqual('ferret_create_item' in names, expected_write)
+                        self.assertNotIn('ferret_remove', names)
 
 
 if __name__ == '__main__':
