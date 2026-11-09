@@ -31,3 +31,11 @@ Named-volume backups and rollback need deployment-specific verification. The
 health endpoint does not verify Homebox reachability or inventory correctness.
 The upstream Homebox dependency has its own API/version compatibility surface;
 test locked updates against a disposable Homebox before accepting them.
+
+The optional Ferret upstream uses an HTTPS-only endpoint and its own static
+bearer token from the local container environment. Incoming ChatGPT OAuth
+headers are **not** forwarded. The gateway exposes only reviewed namespaced
+read tools by default; writes require explicit names in `FERRET_WRITE_TOOLS`.
+Future upstream tools and the broad `remove` tool stay blocked. The remote
+server's own key permissions remain a separate trust boundary. Neither
+`/healthz` nor offline CI tests can verify a live Ferret connection.
