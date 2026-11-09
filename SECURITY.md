@@ -50,3 +50,12 @@ whole downloads at 32 MiB, with a SHA-256 for integrity verification. Invoice
 contents may include personal information, so avoid exporting them through chat
 unless necessary. Media is not copied to Ferret automatically; a later direct
 server-side importer should be used for bulk transfer.
+
+The `ferret-migrate` maintenance service runs only when manually invoked.
+It uses the already configured Homebox and Ferret API tokens from the NAS
+`.env` to read source data and write destination data directly. It never
+exposes a public import endpoint, never changes Homebox, filters attachments
+by the Homebox `photo` type and never transfers receipt/document content.
+Source photo downloads are bounded to 16 MiB; unknown formats are rejected.
+The importer performs a dry run unless `--apply` is specified and uses
+stable source-ID markers and photo filenames for safe repeated runs.
