@@ -13,7 +13,8 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 from fastmcp.server import create_proxy
-from fastmcp.client.transports import PythonStdioTransport
+from fastmcp.client.transports import PythonStdioTransport, StreamableHttpTransport
+from fastmcp.server.providers.proxy import ProxyClient
 from fastmcp.server.auth.providers.github import GitHubProvider
 from fastmcp.server.auth.oidc_proxy import OIDCProxy
 from fastmcp.server.middleware import Middleware as MCPMiddleware
@@ -32,9 +33,67 @@ TOOLS = {
     'delete_empty_location', 'upload_item_photo',
 }
 
+# Ferret's remote tools are never implicitly trusted. Keep a reviewed set of
+# read operations; writes require an exact opt-in in FERRET_WRITE_TOOLS.
+# Deliberately exclude the broad "remove" tool and unreviewed future tools.
+FERRET_READ_TOOLS = frozenset({
+    'search_inventory', 'ask_inventory', 'get_item', 'list_items',
+    'list_locations', 'what_needs_attention', 'shopping_list',
+    'item_history', 'coverage_check', 'list_loans', 'list_categories',
+    'list_collections', 'list_warranties', 'inventory_report',
+    'list_maintenance', 'list_providers', 'recently_deleted',
+    'room_scan_results', 'get_photo', 'list_recalls', 'list_templates',
+})
+
+FERRET_WRITE_TOOLS = frozenset({
+    'add_photo', 'scan_room', 'add_from_room_scan',
+    'add_item_from_photo', 'create_item', 'update_item', 'adjust_stock',
+    'record_reading', 'restore_item', 'complete_maintenance',
+    'bulk_update_items', 'set_recall_status', 'attach_label',
+    'save_property', 'save_location', 'save_maintenance',
+    'save_warranty', 'save_warranty_claim', 'save_loan',
+    'return_loan', 'save_provider', 'save_category',
+    'save_collection', 'save_coverage_limit',
+})
+
+def ferret_settings():
+    """Return optional Ferret settings and reviewed tools, or None."""
+    url = os.environ.get('FERRET_MCP_URL', '').strip()
+    token = os.environ.get('FERRET_MCP_TOKEN', '').strip()
+    writes = os.environ.get('FERRET_WRITE_TOOLS', '').strip()
+    if not url and not token and not writes:
+        return None
+    if not url or not token:
+        raise ValueError('Set both FERRET_MCP_URL and FERRET_MCP_TOKEN, or neither')
+    parsed = urlsplit(url)
+    if (parsed.scheme != 'https' or not parsed.hostname or
+            parsed.username or parsed.password or not parsed.path or
+            parsed.query or parsed.fragment):
+        raise ValueError('FERRET_MCP_URL must be an HTTPS MCP endpoint without credentials, query or fragment')
+    # Never accept a preformatted HTTP header or newlines from .env.
+    if (not token or any(c.isspace() for c in token) or
+            token.lower().startswith('bearer ')):
+        raise ValueError('FERRET_MCP_TOKEN must contain only the raw bearer token')
+    requested_writes = {x.strip() for x in writes.split(',') if x.strip()}
+    unknown = requested_writes - FERRET_WRITE_TOOLS
+    if unknown:
+        raise ValueError('Unapproved FERRET_WRITE_TOOLS: ' + ', '.join(sorted(unknown)))
+    return url, token, FERRET_READ_TOOLS | requested_writes
+
+def create_ferret_proxy(url: str, token: str):
+    """Forward only gateway-originated calls; never forward ChatGPT's OAuth headers."""
+    transport = StreamableHttpTransport(
+        url, headers={'Authorization': f'Bearer {token}'},
+    )
+    client = ProxyClient(transport, forward_incoming_headers=False)
+    return create_proxy(client, name='Ferret Inventar', mask_error_details=True)
+
 class ExplicitToolBoundary(MCPMiddleware):
+    def __init__(self, allowed_tools=None):
+        self.allowed_tools = TOOLS if allowed_tools is None else frozenset(allowed_tools)
+
     async def on_call_tool(self, context, call_next):
-        if context.message.name not in TOOLS:
+        if context.message.name not in self.allowed_tools:
             raise ToolError('Tool not found')
         return await call_next(context)
 
@@ -255,8 +314,14 @@ def build_server():
     child_env['HOMEBOX_LABEL_DIR'] = os.environ.get('HOMEBOX_LABEL_DIR', '/labels')
     transport = PythonStdioTransport(Path(__file__).with_name('bridge.py'), env=child_env)
     server = create_proxy(transport, name='Mein Inventar', auth=auth, mask_error_details=True)
-    server.add_middleware(ExplicitToolBoundary())
-    server.enable(names=TOOLS, components={'tool'}, only=True)
+    exposed_tools = set(TOOLS)
+    ferret = ferret_settings()
+    if ferret is not None:
+        url, token, ferret_tools = ferret
+        server.mount(create_ferret_proxy(url, token), namespace='ferret')
+        exposed_tools.update('ferret_' + name for name in ferret_tools)
+    server.add_middleware(ExplicitToolBoundary(exposed_tools))
+    server.enable(names=exposed_tools, components={'tool'}, only=True)
     server.disable(components={'resource', 'template', 'prompt'})
 
     @server.custom_route('/healthz', methods=['GET'])
