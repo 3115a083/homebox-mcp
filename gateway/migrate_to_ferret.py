@@ -216,14 +216,24 @@ def ensure_categories(f: httpx.Client, apply: bool, *, can_create=True, counts=N
         if parent not in categories:
             raise ValueError("Ferret starter category missing: " + parent)
         if apply and can_create:
-            created = request(f, "POST", "categories", json={"name": name, "parentId": categories[parent]})
-            categories[name] = created["id"]
-        else:
-            # Use a real existing parent ID, never an invented category ID.
-            # The Homebox tags remain on the item to preserve specificity.
-            categories[name] = categories[parent]
-            if apply and counts is not None:
-                counts["categories_using_parent"] += 1
+            try:
+                created = request(f, "POST", "categories", json={"name": name, "parentId": categories[parent]})
+                categories[name] = created["id"]
+                continue
+            except ValueError as error:
+                # Some Ferret builds advertise optional structure tools but
+                # reject their invocation at the protocol level. Continue
+                # using real starter-category IDs, never fake category IDs.
+                if not isinstance(f, FerretMCP) or not (
+                    "Ferret MCP protocol error for save_category" in str(error)
+                    or "Ferret rejected MCP tool: save_category" in str(error)
+                ):
+                    raise
+                can_create = False
+        # The Homebox category name stays visible as a tag or original notes.
+        categories[name] = categories[parent]
+        if apply and counts is not None:
+            counts["categories_using_parent"] += 1
     return categories
 
 
@@ -276,10 +286,19 @@ def ferret_locations(f: httpx.Client, apply: bool, paths: dict[str, tuple[str, .
         if apply and can_create:
             if len(path) > 1 and not parent_id:
                 raise ValueError("Missing parent Ferret location: " + "/".join(path))
-            created = request(f, "POST", "locations",
-                              json={"propertyId": prop["id"], "name": path[-1], "parentId": parent_id})
-            known[path] = created["id"]
-        elif apply and counts is not None:
+            try:
+                created = request(f, "POST", "locations",
+                                  json={"propertyId": prop["id"], "name": path[-1], "parentId": parent_id})
+                known[path] = created["id"]
+                continue
+            except ValueError as error:
+                if not isinstance(f, FerretMCP) or not (
+                    "Ferret MCP protocol error for save_location" in str(error)
+                    or "Ferret rejected MCP tool: save_location" in str(error)
+                ):
+                    raise
+                can_create = False
+        if apply and counts is not None:
             counts["locations_not_created"] += 1
     return known
 
