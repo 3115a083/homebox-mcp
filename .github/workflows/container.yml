@@ -111,12 +111,12 @@ jobs:
           --security-opt no-new-privileges -e HOMEBOX_TOKEN=ci-placeholder
           --entrypoint python homebox-mcp:ci -c
           "import os, bridge, gateway; assert os.getuid() == 10001; assert 'upload_item_photo' in gateway.TOOLS; print('Image smoke passed')"
-      - name: Check repository and package privacy before publish
+      - name: Verify public repository and package ownership before publishing
         if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
         env:
           GH_TOKEN: ${{ github.token }}
-        run: python tools/check_registry_privacy.py
-      - name: Login to private GHCR
+        run: python tools/check_registry_publication.py
+      - name: Login to GHCR for publishing
         if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
         uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         with:
@@ -134,8 +134,8 @@ jobs:
           docker push "$IMAGE:sha-$REVISION"
           docker tag homebox-mcp:ci "$IMAGE:latest"
           docker push "$IMAGE:latest"
-      - name: Verify published package is private
+      - name: Verify published package identity and report visibility
         if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
         env:
           GH_TOKEN: ${{ github.token }}
-        run: python tools/check_registry_privacy.py --require-package
+        run: python tools/check_registry_publication.py --require-package
