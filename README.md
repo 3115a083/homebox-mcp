@@ -74,6 +74,36 @@ read-only query. A missing/invalid Ferret key may make Ferret tool discovery
 unavailable, but does not intentionally disable Homebox. `/healthz` checks
 the gateway process only, not the Ferret backend.
 
+## Attachment export for the Homebox to Ferret migration
+
+The authenticated gateway now provides two **read-only** Homebox tools, in
+addition to \`get_item\`:
+
+- \`list_item_attachments(identifier)\` returns attachment IDs, titles, types
+  and primary flags for an **exact** Homebox item identifier (prefer assetId).
+- \`read_item_attachment_chunk(identifier, attachment_id, offset=0,
+  max_bytes=131072)\` reads a base64 chunk of the **original** photo, receipt,
+  PDF or manual, up to 192 KiB per response. Follow \`nextOffset\` until
+  \`eof=true\`. The full-file \`sha256\` enables byte-for-byte verification.
+
+Use \`list_item_attachments\` before requesting chunks. The ID must belong to
+the exact item; arbitrary URLs, server files and save paths are not accepted.
+Whole files over 32 MiB are rejected, even if Homebox omits Content-Length.
+No raw inventory files or secrets are included in the image or source.
+
+This is a preparation step for migrating media. **It does not automatically
+copy attachments to Ferret** and it does not replace Homebox's original files.
+Ferret's \`add_photo\` MCP tool can later accept photos and PDF documents when
+individually permitted in \`FERRET_WRITE_TOOLS\`, but sending raw document
+contents through a chat client may expose private receipts to that client.
+For a future large-scale transfer, prefer a server-side migration runner that
+streams files straight from Homebox to Ferret and verifies hashes.
+
+Existing Dockge \`.env\`, OAuth keys and \`mcp_state\` stay unchanged; no
+new environment variables are required. The next published Docker image
+includes these tools. Test on synthetic files first and perform a real
+read-only attachment check after updating.
+
 ## Boundaries
 
 - OAuth identity allowlist and an independent proxy origin secret are required.
