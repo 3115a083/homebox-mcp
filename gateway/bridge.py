@@ -3,6 +3,7 @@ import base64
 import hashlib
 import io
 import os
+import re
 import threading
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -70,6 +71,104 @@ def _upload_item_photo(identifier: str, image_base64: str, primary: bool = True)
     )
     response.raise_for_status()
     return {'ok': True, 'item': entity['name'], 'title': title, 'type': 'photo', 'primary': primary}
+
+# Deliberately keep exports read-only. Do not expose upstream's get_attachment:
+# it accepts arbitrary local paths, which would cross the container boundary.
+_ATTACHMENT_MAX_BYTES = 32 * 1024 * 1024
+_ATTACHMENT_CHUNK_BYTES = 128 * 1024
+_ATTACHMENT_MAX_CHUNK_BYTES = 192 * 1024
+
+def _exact_item_for_export(identifier: str) -> dict:
+    if not isinstance(identifier, str) or len(identifier) > 200 or not identifier.strip():
+        raise ValueError('Provide a valid exact Homebox item identifier')
+    entity, error = upstream._resolve_exact(identifier)
+    if not entity or upstream._is_location(entity):
+        raise ValueError(error or 'No exact Homebox item match')
+    return entity
+
+@upstream.mcp.tool(annotations=ToolAnnotations(read_only_hint=True, destructive_hint=False))
+def list_item_attachments(identifier: str) -> dict:
+    """List an EXACT Homebox item's attachment IDs and metadata for migration.
+
+    Use its assetId, not a fuzzy name, and select IDs from this result.
+    Does not fetch or change file bytes. Never accepts a file path or URL.
+    """
+    entity = _exact_item_for_export(identifier)
+    return {
+        'assetId': entity.get('assetId'),
+        'name': entity['name'],
+        'attachments': [
+            {
+                'id': a.get('id'),
+                'title': a.get('title') or (a.get('document') or {}).get('title'),
+                'type': a.get('type'),
+                'primary': bool(a.get('primary')),
+                'mimeType': a.get('mimeType'),
+            }
+            for a in entity.get('attachments') or [] if a.get('id')
+        ],
+    }
+
+@upstream.mcp.tool(annotations=ToolAnnotations(read_only_hint=True, destructive_hint=False))
+def read_item_attachment_chunk(identifier: str, attachment_id: str,
+                               offset: int = 0, max_bytes: int = _ATTACHMENT_CHUNK_BYTES) -> dict:
+    """Read a bounded base64 chunk of one Homebox photo, PDF or other attachment.
+
+    First call list_item_attachments for an exact assetId and attachment_id.
+    Repeat with nextOffset until eof. The SHA-256 is over the ORIGINAL bytes.
+    Maximum attachment 32 MiB; 192 KiB per call. Does not save files,
+    access arbitrary URLs/paths, upload anything, or alter either inventory.
+    Receipts may contain personal data: only request them when needed.
+    """
+    if (not isinstance(attachment_id, str) or
+            not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_-]{0,127}', attachment_id)):
+        raise ValueError('Invalid attachment ID')
+    if (type(offset) is not int or offset < 0 or offset > _ATTACHMENT_MAX_BYTES or
+            type(max_bytes) is not int or
+            not 1 <= max_bytes <= _ATTACHMENT_MAX_CHUNK_BYTES):
+        raise ValueError('Invalid offset or chunk size')
+    entity = _exact_item_for_export(identifier)
+    a = next((a for a in entity.get('attachments') or []
+              if a.get('id') == attachment_id), None)
+    if a is None:
+        raise ValueError('Attachment ID is not attached to this exact item')
+    # Download solely from the trusted, already-configured Homebox API origin.
+    # The attachment ID must match this item's actual attachment metadata.
+    # Bound the decoded response size even when the HTTP server omits length.
+    path = f"/entities/{entity['id']}/attachments/{attachment_id}"
+    data = bytearray()
+    with upstream._client.stream('GET', path) as response:
+        response.raise_for_status()
+        length = response.headers.get('content-length')
+        if length:
+            try:
+                expected = int(length)
+            except ValueError:
+                raise ValueError('Invalid attachment content length') from None
+            if expected > _ATTACHMENT_MAX_BYTES:
+                raise ValueError('Attachment exceeds 32 MiB export limit')
+        content_type = response.headers.get('content-type', '').split(';', 1)[0].strip()
+        for block in response.iter_bytes():
+            if len(data) + len(block) > _ATTACHMENT_MAX_BYTES:
+                raise ValueError('Attachment exceeds 32 MiB export limit')
+            data.extend(block)
+    if offset > len(data):
+        raise ValueError('Offset exceeds attachment size')
+    chunk = bytes(data[offset:offset + max_bytes])
+    next_offset = offset + len(chunk)
+    return {
+        'assetId': entity.get('assetId'),
+        'attachmentId': attachment_id,
+        'title': a.get('title') or (a.get('document') or {}).get('title'),
+        'type': a.get('type'),
+        'mimeType': content_type or a.get('mimeType'),
+        'totalBytes': len(data),
+        'sha256': hashlib.sha256(data).hexdigest(),
+        'offset': offset,
+        'nextOffset': next_offset,
+        'eof': next_offset == len(data),
+        'dataBase64': base64.b64encode(chunk).decode('ascii'),
+    }
 
 @upstream.mcp.tool(annotations=ToolAnnotations(destructive_hint=True))
 def delete_empty_location(location: str, confirm: str) -> dict:
