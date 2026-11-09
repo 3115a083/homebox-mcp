@@ -232,7 +232,7 @@ def homebox_locations(raw: list[dict]):
         for node in nodes:
             if not isinstance(node, dict):
                 continue
-            is_location = node.get("type") == "location" or node.get("entityType", {}).get("isLocation") is True
+            is_location = node.get("type") == "location" or (node.get("entityType") or {}).get("isLocation") is True
             if not is_location and node.get("children") is None:
                 continue
             path = prefix + (str(node.get("name") or "").strip(),)
