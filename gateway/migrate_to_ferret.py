@@ -498,7 +498,8 @@ def main(argv=None, *, env=None):
     if args.limit < 0:
         parser.error("--limit must be >= 0")
     try:
-        hb_url, f_url, hb_token, f_token = connection_settings(dict(env or os.environ))
+        settings = dict(env or os.environ)
+        hb_url, f_url, hb_token, f_token = connection_settings(settings)
         with httpx.Client(base_url=hb_url, headers={"Authorization": hb_token},
                           timeout=45, follow_redirects=False) as hb:
             if args.transport == "rest":
@@ -506,7 +507,7 @@ def main(argv=None, *, env=None):
                     base_url=f_url, headers={"Authorization": f"Bearer {f_token}"},
                     timeout=90, follow_redirects=False)
             else:
-                destination = FerretMCP(os.environ["FERRET_MCP_URL"], f_token)
+                destination = FerretMCP(settings["FERRET_MCP_URL"], f_token)
             with destination as f:
                 counts, errors = migrate(hb, f, apply=args.apply, limit=args.limit,
                                          photos=not args.items_only)
