@@ -62,5 +62,29 @@ services:
         max-size: 5m
         max-file: "2"
 
+  ferret-migrate:
+    profiles: [maintenance]
+    image: ghcr.io/3115a083/homebox-mcp:${HOMEBOX_MCP_TAG:-latest}
+    pull_policy: always
+    restart: "no"
+    command: [python, /app/migrate_to_ferret.py]
+    env_file: .env
+    read_only: true
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,size=32m
+    mem_limit: 256m
+    memswap_limit: 256m
+    cpus: 1.0
+    pids_limit: 64
+    init: true
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options:
+        max-size: 5m
+        max-file: "2"
+
 volumes:
   mcp_state:
