@@ -183,7 +183,7 @@ class MigrationTests(unittest.TestCase):
         fake.dest.append({
             "id": "already-1",
             "name": "BambuLab X1C 3D Drucker",
-            "notes": "Homebox-ID: 000-001\\n\\nHomebox-Objekt-ID: hb001",
+            "notes": "Homebox-ID: 000-001\n\nHomebox-Objekt-ID: hb001",
         })
         hb, ferret = fake.clients()
         with hb, ferret:
