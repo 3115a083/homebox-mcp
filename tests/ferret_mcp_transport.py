@@ -19,6 +19,7 @@ class McpServerFake:
         self.db = inventory
         self.calls = []
         self.mcp_only = True
+        self.fail_optional = set()
         self.tools = {
             "list_locations", "list_categories", "list_items", "get_item",
             "create_item", "add_photo", "save_category", "save_location",
@@ -48,6 +49,11 @@ class McpServerFake:
         assert method == "tools/call"
         name, args = payload["params"]["name"], payload["params"]["arguments"]
         self.calls.append(name)
+        if name in self.fail_optional:
+            return httpx.Response(200, json={
+                "jsonrpc": "2.0", "id": payload["id"],
+                "error": {"code": -32602, "message": "Invalid params"},
+            })
         db = self.db
         if name == "list_locations":
             result = {"properties": [{"id": "property1", "name": "Test",
@@ -156,6 +162,22 @@ class Tests(unittest.TestCase):
         self.assertEqual(db.dest[1]["locationId"], "loc-work")
         self.assertNotIn("save_category", server.calls)
         self.assertNotIn("save_location", server.calls)
+
+    def test_advertised_optional_structure_writes_can_fail_safely(self):
+        db = MockInventory()
+        server = McpServerFake(db)
+        server.fail_optional = {"save_category", "save_location"}
+        hb, _unused = db.clients()
+        with hb, FerretMCP("https://example.invalid/mcp", "ferret-token",
+                           transport=httpx.MockTransport(server)) as f:
+            counts, errors = m.migrate(hb, f, apply=True)
+        self.assertFalse(errors, errors)
+        self.assertEqual(counts["created"], 2)
+        self.assertEqual(counts["uploaded_photos"], 2)
+        self.assertGreater(counts["categories_using_parent"], 0)
+        self.assertGreater(counts["locations_not_created"], 0)
+        self.assertEqual(server.calls.count("save_category"), 1)
+        self.assertEqual(server.calls.count("save_location"), 1)
 
     def test_mcp_tool_error_is_rejected(self):
         db = MockInventory()
