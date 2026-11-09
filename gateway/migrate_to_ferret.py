@@ -431,14 +431,35 @@ def read_photo(hb: httpx.Client, item: dict, attachment: dict):
     return bytes(data), photo_filename(file_id, ext)
 
 
+def diagnostic_message(error: BaseException, settings: dict[str, str]) -> str:
+    """Only a short, single-line cause. Never reveal Homebox/Ferret secrets."""
+    reason = str(error).replace("\n", " ").replace("\r", " ")
+    for key in ("HOMEBOX_TOKEN", "FERRET_MCP_TOKEN"):
+        secret = settings.get(key)
+        if secret:
+            reason = reason.replace(secret, "[REDACTED]")
+    return reason[:220] or "No additional details"
+
+
+def _preflight(label: str, work):
+    """Identify which read-only setup phase raised a validation error."""
+    try:
+        return work()
+    except (ValueError, TypeError, KeyError) as error:
+        raise ValueError(f"{label}: {error}") from None
+
+
 def migrate(hb: httpx.Client, ferret: httpx.Client, *, apply=False, limit=0, photos=True):
-    request(ferret, "GET", "me")  # Confirm API-key auth before reading 195 records.
-    items = homebox_items(hb)
-    dest = ferret_items(ferret)
+    _preflight("Ferret-MCP-Authentifizierung", lambda: request(ferret, "GET", "me"))
+    items = _preflight("Homebox-Artikel abrufen", lambda: homebox_items(hb))
+    dest = _preflight("Ferret-Artikel abrufen", lambda: ferret_items(ferret))
     indexes = existing_index(dest)
-    source_tree = homebox_locations(get_location_tree(hb))
-    categories = ensure_categories(ferret, apply)
-    locations = ferret_locations(ferret, apply, source_tree)
+    source_tree = _preflight("Homebox-Lagerorte abrufen",
+                             lambda: homebox_locations(get_location_tree(hb)))
+    categories = _preflight("Ferret-Kategorien abrufen",
+                            lambda: ensure_categories(ferret, apply))
+    locations = _preflight("Ferret-Lagerorte abrufen",
+                           lambda: ferret_locations(ferret, apply, source_tree))
     counts = Counter(source=len(items), existing_destination=len(dest))
     errors = []
     for item in items[:limit or None]:
@@ -502,8 +523,8 @@ def main(argv=None, *, env=None):
     args = parser.parse_args(argv)
     if args.limit < 0:
         parser.error("--limit must be >= 0")
+    settings = dict(env or os.environ)
     try:
-        settings = dict(env or os.environ)
         hb_url, f_url, hb_token, f_token = connection_settings(settings)
         with httpx.Client(base_url=hb_url, headers={"Authorization": hb_token},
                           timeout=45, follow_redirects=False) as hb:
@@ -524,9 +545,19 @@ def main(argv=None, *, env=None):
                 print(f"... and {len(errors)-30} more errors", file=sys.stderr)
             return 2
         return 0
-    except (ValueError, httpx.HTTPError, KeyError) as error:
-        # Never emit HTTP error bodies, response headers, secrets or file bytes.
-        print("Migration failed: " + type(error).__name__, file=sys.stderr)
+    except ValueError as error:
+        # Controlled local validation messages, with secrets redacted.
+        print("Migration failed: " + diagnostic_message(error, settings), file=sys.stderr)
+        return 1
+    except (httpx.HTTPError, KeyError) as error:
+        # Never emit response bodies, credentials or raw URLs.
+        if isinstance(error, httpx.HTTPStatusError):
+            print("Migration failed: HTTP "
+                  + str(error.response.status_code)
+                  + " at " + error.request.method
+                  + " " + error.request.url.path, file=sys.stderr)
+        else:
+            print("Migration failed: " + type(error).__name__, file=sys.stderr)
         return 1
 
 
