@@ -148,6 +148,46 @@ class Tests(unittest.TestCase):
         for rule, name in zip(care.RULES, examples):
             self.assertRegex(name, re.compile(rule.pattern, flags=re.I))
 
+    def test_legacy_ferret_tool_names_are_supported(self):
+        fake = FakeFerret()
+        original = fake.call
+
+        def legacy_only(name, args=None):
+            if name in ("save_maintenance", "save_location", "save_category"):
+                raise AssertionError("Modern write tool not exposed")
+            renamed = {
+                "add_maintenance": "save_maintenance",
+                "create_location": "save_location",
+                "create_category": "save_category",
+            }
+            return original(renamed.get(name, name), args)
+
+        fake.call = legacy_only
+        available = frozenset({
+            "list_maintenance", "add_maintenance", "create_location",
+            "create_category", "list_locations", "list_categories",
+            "update_item",
+        })
+        self.assertEqual(care.create_tool(available, "save_maintenance", "add_maintenance"),
+                         "add_maintenance")
+        self.assertEqual(care.create_tool(available, "save_location", "create_location"),
+                         "create_location")
+        self.assertEqual(care.create_tool(available, "save_category", "create_category"),
+                         "create_category")
+        tasks = Counter()
+        care.prepare_tasks(fake, fake.items, apply=True, available=available, summary=tasks)
+        self.assertEqual(tasks["scheduled_maintenance"], 5)
+        self.assertEqual(len(fake.maintenance), 5)
+        struct = Counter()
+        care.create_structure(fake, available, fake.items, apply=True, summary=struct)
+        self.assertEqual(struct["locations_created"], 1)
+        self.assertEqual(struct["moved_to_review_location"], 1)
+        self.assertEqual(struct["categories_created"], len(care.TECH_CATEGORIES))
+        rerun = Counter()
+        care.prepare_tasks(fake, fake.items, apply=True, available=available, summary=rerun)
+        self.assertEqual(rerun["already_scheduled"], 5)
+        self.assertEqual(rerun["would_create_maintenance"], 0)
+
     def test_sourced_rules_require_no_personal_ids(self):
         self.assertGreaterEqual(len(care.RULES), 9)
         for rule in care.RULES:
