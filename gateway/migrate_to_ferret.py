@@ -384,8 +384,16 @@ def extension_for(raw: bytes):
 
 
 def source_photos(item):
-    return [a for a in item.get("attachments") or []
-            if isinstance(a, dict) and str(a.get("type") or "").lower() == "photo" and a.get("id")]
+    # Source type and title both matter. Some older uploads classify a scanned
+    # invoice as a photo; when the name gives that away, do not transfer it.
+    excluded = re.compile(r"(?:rechnung|invoice|receipt|quittung|kassenbon|\\bbeleg\\b|\\bbill\\b|manual|warranty|\\.pdf$)", re.I)
+    return [
+        a for a in item.get("attachments") or []
+        if isinstance(a, dict)
+        and str(a.get("type") or "").lower() == "photo"
+        and a.get("id")
+        and not excluded.search(str(a.get("title") or (a.get("document") or {}).get("title") or ""))
+    ]
 
 
 def photo_filename(source_id: str, ext: str):
