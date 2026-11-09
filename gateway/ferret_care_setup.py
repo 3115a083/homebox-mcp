@@ -260,6 +260,9 @@ def main(argv=None):
         summary = Counter()
         with FerretMCP(url, token) as client:
             available = client.available_tools()
+            summary["maintenance_write_available"] = int("save_maintenance" in available)
+            summary["category_write_available"] = int("save_category" in available)
+            summary["location_write_available"] = int("save_location" in available)
             items = all_items(client)
             summary["inventory_count"] = len(items)
             if not args.structure_only:
@@ -277,10 +280,10 @@ def main(argv=None):
         print(("APPLY" if args.apply else "DRY RUN") + " - " + json.dumps(dict(summary), ensure_ascii=False, sort_keys=True))
         return 0
     except Exception as error:
-        # Never log raw payloads, URLs or HTTP responses. These could contain
-        # secret headers or user-inventory data.
-        print("Ferret care setup failed: " + type(error).__name__
-              + (" (missing write permission or unsupported tool)" if isinstance(error, ValueError) else ""), file=sys.stderr)
+        # Never log raw payloads, URLs, error messages, or HTTP responses.
+        # They could contain secret headers or private inventory information.
+        kind = "Ferret tool or write permission unavailable" if isinstance(error, ValueError) else type(error).__name__
+        print("Ferret care setup failed: " + kind, file=sys.stderr)
         return 1
 
 
@@ -293,7 +296,10 @@ class CounterProxy:
         return self.counter[key]
 
     def __setitem__(self, key, val):
-        if not key.startswith("would_") and key not in ("matched_devices", "candidate_maintenance"):
+        if not key.startswith("would_") and key not in (
+            "matched_devices", "candidate_maintenance", "already_scheduled",
+            "location_structure_unavailable", "technical_categories_unavailable",
+        ):
             self.counter[key] = val
 
 
