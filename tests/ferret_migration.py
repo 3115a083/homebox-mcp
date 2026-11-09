@@ -202,6 +202,15 @@ class MigrationTests(unittest.TestCase):
         self.assertEqual(sum(len(x) for x in fake.attachments.values()), 2)
         self.assertFalse(any("receipt" in path for method, path, _ in fake.events if method == "GET"))
 
+    def test_receipt_photo_mislabeled_is_excluded(self):
+        self.assertEqual(m.source_photos({"attachments": [
+            {"id": "x1", "type": "photo", "title": "scan-Rechnung.jpg"},
+            {"id": "x2", "type": "photo", "title": "invoice_EN123.jpg"},
+            {"id": "x3", "type": "photo", "title": "Produktfoto.jpg"},
+            {"id": "x4", "type": "receipt", "title": "scan.jpg"},
+            {"id": "x5", "type": "photo", "title": "Aufnahme.pdf"},
+        ]}), [{"id": "x3", "type": "photo", "title": "Produktfoto.jpg"}])
+
     def test_photo_signatures(self):
         self.assertEqual(m.extension_for(b"\xff\xd8\xffhello"), "jpg")
         self.assertEqual(m.extension_for(b"\x89PNG\r\n\x1a\nhello"), "png")
