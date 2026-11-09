@@ -93,7 +93,7 @@ class FerretTests(unittest.TestCase):
 
     def test_mount_exposes_only_reviewed_tools(self):
         # A synthetic, in-process backend keeps CI independent of Ferret and secrets.
-        fake = FastMCP('Synthetic Ferret')
+        fake = FastMCP('Synthetic Ferret', mask_error_details=True)
 
         @fake.tool()
         def search_inventory(query: str) -> dict:
@@ -123,7 +123,7 @@ class FerretTests(unittest.TestCase):
                     with patch.dict(os.environ, runtime | {'FERRET_WRITE_TOOLS': enabled_writes}), \
                          patch('gateway.create_ferret_proxy', return_value=fake):
                         server, _ = build_server()
-                        names = set(asyncio.run(server.get_tools()))
+                        names = {tool.name for tool in asyncio.run(server.list_tools())}
                         self.assertIn('ferret_search_inventory', names)
                         self.assertEqual('ferret_create_item' in names, expected_write)
                         self.assertNotIn('ferret_remove', names)
