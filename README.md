@@ -170,6 +170,47 @@ The importer handles source photos up to 16 MiB each. Other images are logged
 as errors for separate review rather than omitted silently. Do not delete
 Homebox until counts and photos have been verified in Ferret.
 
+## Optional Ferret maintenance and room/category finalization
+
+The standalone `ferret_care_setup.py` tool uses the Ferret MCP connection
+directly. It contains only generic, publicly sourced device-care templates
+and never commits private inventory data or API keys. Only items matching an
+identifiable model (3D printer, espresso machine, coffee grinder, air purifiers,
+dehumidifier, power station, toaster, ceiling fan or generic server) receive
+suggested tasks. The script lists them before making changes and checks for
+existing tasks on each item, including completed ones.
+
+On a TrueNAS SSH connection from the existing Dockge stack directory:
+
+```sh
+CID=$(sudo docker compose ps -q homebox-mcp)
+test -n "$CID" && sudo docker run --rm --network "container:$CID" --env-file .env ghcr.io/3115a083/homebox-mcp:latest python /app/ferret_care_setup.py
+```
+
+The default is a **read-only preview**. The summary prints
+`maintenance_write_available`, `category_write_available` and
+`location_write_available`. If the Ferret MCP endpoint advertises
+`save_maintenance`, pass `--apply` to schedule tasks. It will **not**
+claim a schedule exists when the server only allows item notes or
+`create_item`: in that case it exits before changes.
+
+Pass `--structure` to additionally use optional `save_category`,
+`save_location`, and `update_item` tools to create technical categories,
+and create an exact `Arbeitszimmer / Noch einzuordnen` sub-location for items
+whose Homebox notes explicitly name it and which still have `Standort prüfen`.
+No locations are guessed, and the review tag remains in place. If optional
+structure tools are not exposed, they are skipped. For a structure-only run
+without maintenance scheduling, use `--structure-only --apply`.
+
+For the care schedules, the intervals for checks are often conservative
+operational reminders. The machine's manual and automatic prompts take
+precedence: in particular the Ninja coffee machine is descaled **only on
+its own indicator**; filter replacements are based on filter condition and
+manufacturer guidance. Source URLs and steps appear in each task's notes.
+Each run is idempotent and avoids duplicate tasks by item and task title.
+There is no server-side background job associated with running this tool;
+Ferret itself manages due dates once tasks exist.
+
 ## Boundaries
 
 - OAuth identity allowlist and an independent proxy origin secret are required.
