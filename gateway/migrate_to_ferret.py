@@ -198,7 +198,7 @@ def flatten_categories(nodes):
     return out
 
 
-def ensure_categories(f: httpx.Client, apply: bool):
+def ensure_categories(f: httpx.Client, apply: bool, *, can_create=True, counts=None):
     tree = request(f, "GET", "categories").get("data") or []
     categories = {c["name"]: c["id"] for c in flatten_categories(tree)}
     # A small, purpose-built taxonomy. Leave Ferret's starter categories intact.
@@ -211,9 +211,29 @@ def ensure_categories(f: httpx.Client, apply: bool):
         ("Smart Home", "Electronics"),
     ]
     for name, parent in additions:
-        if name not in categories and apply:
-            created = request(f, "POST", "categories", json={"name": name, "parentId": categories[parent]})
-            categories[name] = created["id"]
+        if name in categories:
+            continue
+        if parent not in categories:
+            raise ValueError("Ferret starter category missing: " + parent)
+        if apply and can_create:
+            try:
+                created = request(f, "POST", "categories", json={"name": name, "parentId": categories[parent]})
+                categories[name] = created["id"]
+                continue
+            except ValueError as error:
+                # Some Ferret builds advertise optional structure tools but
+                # reject their invocation at the protocol level. Continue
+                # using real starter-category IDs, never fake category IDs.
+                if not isinstance(f, FerretMCP) or not (
+                    "Ferret MCP protocol error for save_category" in str(error)
+                    or "Ferret rejected MCP tool: save_category" in str(error)
+                ):
+                    raise
+                can_create = False
+        # The Homebox category name stays visible as a tag or original notes.
+        categories[name] = categories[parent]
+        if apply and counts is not None:
+            counts["categories_using_parent"] += 1
     return categories
 
 
@@ -246,7 +266,7 @@ def homebox_locations(raw: list[dict]):
     return locs
 
 
-def ferret_locations(f: httpx.Client, apply: bool, paths: dict[str, tuple[str, ...]]):
+def ferret_locations(f: httpx.Client, apply: bool, paths: dict[str, tuple[str, ...]], *, can_create=True, counts=None):
     raw = request(f, "GET", "locations/tree")
     props = raw.get("properties") or []
     if len(props) != 1:
@@ -263,12 +283,23 @@ def ferret_locations(f: httpx.Client, apply: bool, paths: dict[str, tuple[str, .
         if not path or path in known:
             continue
         parent_id = known.get(path[:-1])
-        if len(path) > 1 and not parent_id:
-            raise ValueError("Missing parent Ferret location: " + "/".join(path))
-        if apply:
-            created = request(f, "POST", "locations",
-                              json={"propertyId": prop["id"], "name": path[-1], "parentId": parent_id})
-            known[path] = created["id"]
+        if apply and can_create:
+            if len(path) > 1 and not parent_id:
+                raise ValueError("Missing parent Ferret location: " + "/".join(path))
+            try:
+                created = request(f, "POST", "locations",
+                                  json={"propertyId": prop["id"], "name": path[-1], "parentId": parent_id})
+                known[path] = created["id"]
+                continue
+            except ValueError as error:
+                if not isinstance(f, FerretMCP) or not (
+                    "Ferret MCP protocol error for save_location" in str(error)
+                    or "Ferret rejected MCP tool: save_location" in str(error)
+                ):
+                    raise
+                can_create = False
+        if apply and counts is not None:
+            counts["locations_not_created"] += 1
     return known
 
 
@@ -454,13 +485,31 @@ def migrate(hb: httpx.Client, ferret: httpx.Client, *, apply=False, limit=0, pho
     items = _preflight("Homebox-Artikel abrufen", lambda: homebox_items(hb))
     dest = _preflight("Ferret-Artikel abrufen", lambda: ferret_items(ferret))
     indexes = existing_index(dest)
+    counts = Counter(source=len(items), existing_destination=len(dest))
+    structure_categories, structure_locations = True, True
+    if apply and isinstance(ferret, FerretMCP):
+        available = _preflight("Ferret-MCP-Schreibrechte prüfen", ferret.available_tools)
+        required = {"create_item", "list_items", "list_categories", "list_locations"}
+        if photos:
+            required |= {"get_item", "add_photo"}
+        missing = required - available
+        if missing:
+            raise ValueError(
+                "Ferret MCP hat keine Schreibberechtigung für "
+                + ", ".join(sorted(missing))
+                + ". In Ferret unter Einstellungen einen API-Key mit Schreibrechten erstellen "
+                  "und FERRET_MCP_TOKEN in der TrueNAS .env aktualisieren."
+            )
+        structure_categories = "save_category" in available
+        structure_locations = "save_location" in available
     source_tree = _preflight("Homebox-Lagerorte abrufen",
                              lambda: homebox_locations(get_location_tree(hb)))
     categories = _preflight("Ferret-Kategorien abrufen",
-                            lambda: ensure_categories(ferret, apply))
+                            lambda: ensure_categories(ferret, apply,
+                                can_create=structure_categories, counts=counts))
     locations = _preflight("Ferret-Lagerorte abrufen",
-                           lambda: ferret_locations(ferret, apply, source_tree))
-    counts = Counter(source=len(items), existing_destination=len(dest))
+                           lambda: ferret_locations(ferret, apply, source_tree,
+                               can_create=structure_locations, counts=counts))
     errors = []
     for item in items[:limit or None]:
         try:
@@ -468,7 +517,19 @@ def migrate(hb: httpx.Client, ferret: httpx.Client, *, apply=False, limit=0, pho
             existing, create = match_existing(item, indexes)
             place = item_location(hb, item, source_tree)
             category = categories.get(infer_category(item))
-            body = item_payload(item, category, locations.get(place), place)
+            matched_location = locations.get(place)
+            if matched_location is None and place:
+                # No invented location IDs. Preserve exact Homebox location in
+                # notes and place the item in its closest existing ancestor.
+                for depth in range(len(place) - 1, 0, -1):
+                    matched_location = locations.get(place[:depth])
+                    if matched_location:
+                        break
+            body = item_payload(item, category, matched_location, place)
+            if place and place not in locations:
+                if "Standort prüfen" not in body["tags"]:
+                    body["tags"].append("Standort prüfen")
+                counts["items_with_location_fallback"] += 1
             if create:
                 if not apply:
                     counts["would_create"] += 1
