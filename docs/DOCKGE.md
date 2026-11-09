@@ -1,60 +1,44 @@
-# Dockge: private image updates
+# Dockge: pull the public GHCR image
 
-## 1. First image
+## 1. Publish from main
 
-Merge the reviewed implementation into `main` and wait for the `Container`
-workflow to complete successfully. The private package is
-`ghcr.io/3115a083/homebox-mcp`. Source repository and package both stay private;
-they have separate visibility settings. The publisher checks both and never
-changes either setting. No additional GitHub publishing token is needed:
-Actions uses its short-lived `GITHUB_TOKEN`.
+A reviewed pull request merges into `main`. The `Container` GitHub Actions
+workflow runs synthetic security tests, validates Compose, builds a Linux amd64
+image, smoke-tests it without network access, checks package ownership, then
+publishes:
 
-The initial version targets Linux amd64, matching the existing x86 NAS stack.
-ARM64 is not advertised or tested. Do not migrate before the first image exists.
+- `ghcr.io/3115a083/homebox-mcp:latest`
+- `ghcr.io/3115a083/homebox-mcp:sha-<full-commit>` for rollback
 
-## 2. Give Dockge read access once
+Pull requests build and test but do **not** publish. Only pushes or manually
+dispatched runs on `main` may publish. No unattended NAS deployment occurs.
+The runtime Docker image contains no inventory records, keys or OAuth state.
+ARM64 has not been built/tested.
 
-Create an expiring GitHub PAT **classic**, with **read:packages** only, for an
-account that can read the private package. Do not select `repo`, write or delete
-permissions just for pulling. If an organization requires SSO, authorize it.
-Never paste the token into chat, Compose, `.env` or a command argument.
+## 2. Make the GHCR package public once
 
-On the NAS, create a dedicated directory for registry credentials. Use a
-persistent path of your choice, for example `/absolute/persistent/registry-auth`:
+GitHub source repository visibility and package visibility are separate.
+Pushing a container package normally creates it **private**. After a successful
+publish, go to the owner's GitHub **Profile > Packages > homebox-mcp >
+Package settings > Danger Zone > Change visibility > Public**. Confirm the
+package name.
 
-```sh
-sudo install -d -m 700 /absolute/persistent/registry-auth
-sudo docker --config /absolute/persistent/registry-auth login ghcr.io --username 3115a083
-sudo chmod 600 /absolute/persistent/registry-auth/config.json
-```
+**GitHub warns that once a package is public, it cannot be made private
+again.** Do not make this change until you intend the image (not your private
+inventory data) to be publicly downloadable.
 
-Enter the PAT at the password prompt. Docker stores credentials in that config;
-without a credential helper, its `auth` value is encoded, not encrypted. Protect
-the directory and its backups. Renew expiring tokens with the same login command.
+Public GHCR images allow anonymous pulls; no GitHub PAT, Docker registry login
+or Dockge credential mount is required. Do not remove an existing credential
+mount until the anonymous pull has been verified. GitHub Actions still uses its
+short-lived `GITHUB_TOKEN` to **push** new images.
 
-In the **Dockge stack's own Compose**, append this mount to the existing volumes:
+## 3. Update the existing Dockge stack
 
-```yaml
-services:
-  dockge:
-    volumes:
-      - /absolute/persistent/registry-auth:/root/.docker:ro
-```
+Keep the same Dockge stack name and directory, `.env`, OAuth signing key, port
+mapping, proxy config and `mcp_state` volume. **Never run `down -v`** or
+prune the state volume. Back up your stack settings before updating.
 
-This is a fragment, not a replacement for Dockge's other mounts/settings.
-Redeploy Dockge once to apply it. If it already mounts a Docker auth directory,
-add the GHCR login there instead of mounting a second directory over it.
-For a custom Dockge user or `DOCKER_CONFIG`, use that client's actual config path.
-An agent-managed stack requires the login/mount on that agent's Dockge instance.
-
-## 3. Migrate this existing stack
-
-Keep the same Dockge stack name/directory. Keep `.env`, OAuth keys, port mapping,
-proxy settings and the existing `mcp_state` volume. Do not run `down -v` or prune
-volumes. Save a protected copy of the old Compose and its local image before
-changing it; do not copy secrets into the source repository.
-
-In `homebox-mcp`, remove `build: ./gateway` and replace the old image:
+In the existing `homebox-mcp` service, remove `build: ./gateway` and use:
 
 ```yaml
 services:
@@ -63,39 +47,44 @@ services:
     pull_policy: always
 ```
 
-If `photo-import` is present, make the same two-line image change there and
-remove its `build` entry. Preserve its maintenance profile. All other settings
-stay as in your current stack. The root `compose.yaml` is a complete example.
-Do not add a Docker socket or registry credentials to the MCP service.
+If using the optional `photo-import` maintenance service, update its image as
+well and keep its profile. Preserve all other service settings. The root
+`compose.yaml` is a full reference.
 
-An initial read-only pull check is useful:
+For optional Ferret integration add these to the **local Dockge stack** `.env`:
 
-```sh
-sudo docker --config /absolute/persistent/registry-auth pull ghcr.io/3115a083/homebox-mcp:latest
+```dotenv
+FERRET_MCP_URL=https://ferret.example.invalid/mcp
+FERRET_MCP_TOKEN=<raw-Ferret-token>
+FERRET_WRITE_TOOLS=
 ```
 
-Then deploy/update the existing stack through Dockge. Recheck `/healthz` and
-the authenticated MCP connection, including tool listing and one read-only
-inventory query. Real NAS acceptance has to be performed on that installation.
+A Ferret key is server-side only, never put it in GitHub, Compose image labels,
+or a chat. Leaving Ferret variables unset keeps Homebox-only behavior.
 
-## 4. Subsequent updates and rollback
+Test an **anonymous** pull on the NAS or another clean Docker client:
 
-After future reviewed changes reach `main`, wait for the green publisher, then
-use Dockge's **Update / Aktualisieren** button. A private Git checkout on the
-NAS is no longer needed. Update only pulls/recreates the container; Compose
-schema or new required environment variables still need an explicit migration.
+```sh
+docker --config /tmp/ghcr-anonymous-test pull ghcr.io/3115a083/homebox-mcp:latest
+```
 
-To roll back, put `HOMEBOX_MCP_TAG=sha-<previous-full-commit>` in the stack's
-local `.env` and update/redeploy. Remove the override or set `latest` to resume
-normal updates. Keep older image versions available in GHCR for this purpose.
-The initial local image can also be selected explicitly in the previous Compose.
+A `401 Unauthorized` or `denied` error indicates that the package may still
+be private, the tag may not exist, or publication failed. Check GitHub package
+visibility and the workflow log. After the image is available, press
+**Update / Aktualisieren** on the existing Dockge stack.
 
-`unauthorized` during pull usually means missing/expired package credentials,
-insufficient package access, or an auth config mounted into the wrong Docker
-client. A host login alone does not make credentials visible inside Dockge.
+Recheck `/healthz`, your authenticated MCP tool list and one read-only
+inventory query. `/healthz` checks process health, not the upstreams.
 
-## Primary documentation
+## 4. Rollback
 
-- [GHCR authentication and private packages](https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-container-registry)
-- [Dockge private-registry mount](https://github.com/louislam/dockge/blob/master/compose.yaml)
+If needed set `HOMEBOX_MCP_TAG=sha-<previous-full-commit>` in your **local**
+`.env` and update the stack again. Restore `latest` after resolving the
+problem. Keep old versions in GHCR. Never recreate OAuth signing keys or
+replace the `mcp_state` volume during rollback.
+
+## Documentation
+
+- [GHCR access and visibility](https://docs.github.com/en/packages/learn-github-packages/configuring-a-packages-access-control-and-visibility)
+- [GitHub Container Registry](https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-container-registry)
 - [Compose pull policy](https://docs.docker.com/reference/compose-file/services/#pull_policy)
