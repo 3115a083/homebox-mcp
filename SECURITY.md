@@ -1,21 +1,24 @@
 # Security scope
 
-2026-11-02: private repository verified before implementation. Ruleset API
-reported the private-repository plan restriction; classic branch-protection API
-returned 403 for this integration. Enforcement, reviewer settings, account MFA,
-collaborators, alert settings and Actions defaults are not verified. CODEOWNERS
-and a workflow file do not enable administrative protection.
+2026-11-09: the owner deliberately made this source repository public.
+The active `main` ruleset requires pull requests and CodeQL; the CodeQL
+workflow exists and runs on PRs. Runtime inventory and credentials are not
+committed or embedded in the image. Repository and GHCR package visibility
+are configured separately.
 
 Image publishing is limited to tested main-branch code. PR build jobs have
 read-only repository permission; only the conditional publisher receives
 `packages: write`. No `pull_request_target`, fork secret access or self-hosted
 runner is used. All external Actions and the Python base image are pinned.
 
-The publisher refuses a non-private repository or existing non-private package,
-requires the existing package's source-repository link, and checks the package
-again after pushing. A newly created GHCR package is private by default. No
-script makes a package public. A concurrent owner visibility change is outside
-the workflow's control; review repository and package visibility separately.
+The publisher verifies that the repository is public, and checks the GHCR
+package's owner/name/type and any repository link before and after pushing.
+A private package may still be updated: GitHub must be configured **manually**
+to make its visibility public for anonymous pulls. This is not done by CI.
+GitHub documents that once a package is public it cannot be made private again.
+A concurrent owner visibility or access change is outside the workflow's
+control. Public access to the **container image** does not grant access to
+OAuth-protected MCP endpoints or encrypted local secrets.
 
 Runtime controls include OAuth subject allowlisting, proxy-origin secret,
 Host/Origin validation, explicit MCP tools, HTTP body/time/concurrency/rate

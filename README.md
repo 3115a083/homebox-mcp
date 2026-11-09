@@ -1,13 +1,13 @@
 # Homebox MCP
 
-Private, authenticated Homebox MCP gateway for Dockge. Existing Homebox stays
+OAuth-authenticated Homebox MCP gateway for Dockge, with public source and image. Existing Homebox stays
 separate. Updates replace the gateway container, not the inventory database.
 
 ## Update path
 
 1. Review and merge a change into `main`.
 2. GitHub Actions runs isolated tests, builds and smoke-tests a Linux amd64 image.
-3. Only the main-branch publisher pushes that tested image to the private package
+3. Only the main-branch publisher pushes that tested image to GHCR as
    `ghcr.io/3115a083/homebox-mcp:latest`, plus `sha-<full-commit>` for rollback.
 4. Press **Update / Aktualisieren** on this stack in Dockge. No local source
    checkout or build is required on the NAS.
@@ -18,9 +18,13 @@ workflow run on main publishes after tests. No unattended NAS deployment occurs.
 
 ## Setup and migration
 
-Read [Dockge migration](docs/DOCKGE.md), including the one-time private-registry
-login and read-only credential mount in the Dockge stack. Registry credentials
-belong to Dockge's Docker client, not to the MCP container or its `.env`.
+Read [Dockge migration](docs/DOCKGE.md). **Source repository visibility and
+GHCR package visibility are separate.** After the publisher succeeds, the owner
+must make the package **Public** once in GitHub's package settings (Danger Zone).
+A public GHCR image supports anonymous pulls, so Dockge does not need a PAT or
+registry credentials. GitHub documents that a public package cannot be made
+private again. No OAuth or runtime inventory secrets should be baked into the
+public Docker image; they remain in the local Dockge `.env`.
 
 For a new installation only: copy `.env.example` with `python prepare.py`, fill
 the Homebox/OAuth settings locally, and configure the HTTPS reverse proxy to
