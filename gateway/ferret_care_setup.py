@@ -93,7 +93,7 @@ RULES = (
              "Nur bei LANGFRISTIGER LAGERUNG: Ladestand und Zustand kontrollieren. Nach dem zum Modell passenden RIVER-2-Max-Handbuch den Lade-/Entladezyklus durchführen und wieder ca. 60 % für die Lagerung bereitstellen. Nicht bei regulärem Gebrauch künstlich zyklisieren.",
              "https://rs.ecoflow.com/wp-content/uploads/2023/11/ECOFLOW_RIVER_2_Max-User_Manual_EU_V1.0.pdf"),
     )),
-    Rule(r"\bSeverin\b.*\btoaster\b", (
+    Rule(r"\bSeverin\b.*toaster\b", (
         Task("[Pflege] Severin Toaster Krümelschublade reinigen", 4, "week",
              "Vorsorge bei regelmäßiger Nutzung: Stecker ziehen, abkühlen lassen, Krümelschublade entleeren und wieder einsetzen. Gehäuse nur trocken/leicht feucht reinigen; kein Eintauchen in Wasser.",
              "https://severin.com/wp-content/uploads/2023/04/2509.pdf"),
