@@ -31,6 +31,7 @@ TOOLS = {
     'field_index', 'list_custom_fields', 'import_csv', 'label_30x40',
     'set_identity', 'set_warranty', 'delete_item', 'delete_tag',
     'delete_empty_location', 'upload_item_photo',
+    'list_item_attachments', 'read_item_attachment_chunk',
 }
 
 # Ferret's remote tools are never implicitly trusted. Keep a reviewed set of
