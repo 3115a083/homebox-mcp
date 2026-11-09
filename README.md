@@ -104,6 +104,67 @@ new environment variables are required. The next published Docker image
 includes these tools. Test on synthetic files first and perform a real
 read-only attachment check after updating.
 
+## One-time Homebox to Ferret transfer, including photos
+
+Use the **isolated** \`ferret-migrate\` Docker Compose maintenance service. It
+reads Homebox and writes **only** to Ferret. The source database is untouched.
+The import includes all current item metadata (names, amounts, item IDs,
+prices where unambiguous, notes, custom fields as notes, tags and categories)
+and original photo attachments. It deliberately excludes **all receipts,
+invoices, PDFs, manuals and other document types**, even if their file
+extension happens to be .jpg.
+
+The migration is resumable: each Ferret item stores its original Homebox
+object ID and asset number. Previously imported items are matched by these
+markers. Uploaded photos use deterministic Homebox-attachment filenames;
+reruns skip matching filenames. A Ferret item with the same name but without a
+Homebox identifier is flagged for review instead of being overwritten.
+
+Existing Ferret rooms are reused. Missing Homebox subrooms are created inside
+Ferret's **single** property. Ferret's original categories remain; technical
+subcategories are added where needed (3D printing, networking, energy,
+cables, electronics and smart home). Original Homebox tags are retained with
+a few normalized names, plus migration/verification tags. Unclear locations
+are flagged rather than fabricated. A bulk-price value with quantity over
+one is preserved in notes, not misrepresented as a unit price.
+
+In the **local Dockge stack's .env**, retain the existing
+\`HOMEBOX_URL\`, \`HOMEBOX_TOKEN\`, \`FERRET_MCP_URL\`, \`FERRET_MCP_TOKEN\`.
+The Ferret API key must have **write** permission. The tool-specific
+\`FERRET_WRITE_TOOLS\` allowlist is unrelated to this isolated REST
+migration. By default, the REST API endpoint is inferred from
+\`FERRET_MCP_URL\` by replacing \`/mcp\` with \`/api/v1\`. If a reverse
+proxy exposes them at different base paths, set \`FERRET_API_URL\` to the
+HTTPS Ferret REST API base URL ending in \`/api/v1\`.
+
+After merging this change, wait for the **green published main image**,
+update the Compose definition to include the new maintenance service, then
+run **from the existing Dockge stack directory on the NAS**:
+
+\`\`\`sh
+# 1. Preview only, no writes:
+docker compose --profile maintenance run --rm ferret-migrate
+
+# 2. Pilot: migrate the first 3 items and their photos:
+docker compose --profile maintenance run --rm ferret-migrate python /app/migrate_to_ferret.py --apply --limit 3
+
+# 3. Complete all items, including the remaining photos:
+docker compose --profile maintenance run --rm ferret-migrate python /app/migrate_to_ferret.py --apply
+\`\`\`
+
+The import outputs counts (created, already imported, uploaded photos, skipped
+photos, errors), without printing inventory details or credentials. A failure
+returns a nonzero exit status; investigate errors and rerun the same command
+safely. \`--items-only\` is available when testing metadata separately.
+
+**Important:** Updating the always-on gateway container does not run the
+migration. The separate maintenance profile must be started explicitly.
+All source photos are accessed **server-to-server**; nothing passes through
+ChatGPT or gets saved in GitHub. No payment documents are sent to Ferret.
+The importer handles source photos up to 16 MiB each. Other images are logged
+as errors for separate review rather than omitted silently. Do not delete
+Homebox until counts and photos have been verified in Ferret.
+
 ## Boundaries
 
 - OAuth identity allowlist and an independent proxy origin secret are required.
