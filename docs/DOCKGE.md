@@ -57,10 +57,17 @@ For optional Ferret integration add these to the **local Dockge stack** `.env`:
 FERRET_MCP_URL=https://ferret.example.invalid/mcp
 FERRET_MCP_TOKEN=<raw-Ferret-token>
 FERRET_WRITE_TOOLS=
+FERRET_DESTRUCTIVE_TOOLS=
 ```
 
 A Ferret key is server-side only, never put it in GitHub, Compose image labels,
 or a chat. Leaving Ferret variables unset keeps Homebox-only behavior.
+Use `FERRET_WRITE_TOOLS=all` only to expose all reviewed **non-destructive**
+Ferret writes; individual comma-separated names are safer for a limited workflow.
+Any destructive operations require a separate explicit `FERRET_DESTRUCTIVE_TOOLS`
+setting and should normally remain disabled. Run the read-only
+`audit_ferret_tools.py` script from the published image to compare the actual
+Ferret MCP tool list with gateway permissions before updating the stack.
 
 Test an **anonymous** pull on the NAS or another clean Docker client:
 
