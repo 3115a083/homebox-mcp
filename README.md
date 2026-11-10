@@ -46,26 +46,59 @@ In the **existing Dockge stack's local `.env`**, add (use your own endpoint):
 ```dotenv
 FERRET_MCP_URL=https://ferret.example.invalid/mcp
 FERRET_MCP_TOKEN=<raw-Ferret-API-key>
-# Optional, only for operations you explicitly want to allow:
+# Optional: explicit comma-separated tool names, or "all" for 33 reviewed
+# NON-DESTRUCTIVE write tool names:
 FERRET_WRITE_TOOLS=
+# Separate opt-in for destructive tools, disabled by default:
+FERRET_DESTRUCTIVE_TOOLS=
 ```
 
-Both URL and token are required; leaving all three variables unset keeps the
+Both URL and token are required. Leaving all four variables unset keeps the
 original Homebox-only behavior. Use the raw bearer token, without `Bearer `.
 The URL must be HTTPS. Do not paste keys into chat or commit them to GitHub.
-The `compose.yaml` already passes `.env` into the gateway, so **no Compose
-changes** are necessary for this feature.
+The `compose.yaml` already passes `.env` into the gateway; no Compose
+changes are required.
 
 Ferret tools appear alongside Homebox tools, prefixed `ferret_`, for example
-`ferret_search_inventory`, `ferret_list_items`, and `ferret_get_item`.
-Only reviewed read-only names are enabled by default; changes to Ferret's own
-available tools do not grant additional access automatically. The broad
-`ferret_remove` operation is intentionally blocked. For named write access,
-set for example `FERRET_WRITE_TOOLS=create_item,update_item` and redeploy. An
-unknown tool name in that variable causes startup to fail safely. Use a
-read-only Ferret API key if you only need queries. An enabled write tool acts
-with the permissions of the configured Ferret key, so confirm destructive
-operations independently.
+`ferret_search_inventory`, `ferret_lookup_barcode`,
+`ferret_add_maintenance` (legacy) and `ferret_save_maintenance` (modern).
+The gateway has a fixed, reviewed union of **58 unique tool names** from the
+legacy 40-tool and modern 47-tool Ferret releases. Only tools advertised by
+the connected Ferret server can actually be called; unknown future tools
+are never automatically trusted.
+
+**Access levels:** Read tools (22 names) are enabled by default.
+For selected writes use, for example,
+`FERRET_WRITE_TOOLS=create_item,update_item,add_maintenance,create_location`.
+To enable all **33 reviewed non-destructive write names**, set
+`FERRET_WRITE_TOOLS=all`. This includes attachment uploads, edits and bulk
+operations. The Ferret key must itself be writable, and the account must have
+appropriate household privileges. Ask the user before modifying inventory.
+
+Legacy `delete_item` and `delete_maintenance`, and modern `remove`,
+are **never** included in `FERRET_WRITE_TOOLS=all`. They require a
+separate, exact-name `FERRET_DESTRUCTIVE_TOOLS` opt-in, for example
+`FERRET_DESTRUCTIVE_TOOLS=delete_maintenance`.
+These upstream functions delete by ID without an additional name-confirmation
+check. Leave this setting empty for normal use.
+Invalid/unreviewed tool names cause startup to fail safely.
+
+### Read-only audit of the live Ferret MCP tools
+
+From the existing Dockge stack directory:
+
+```sh
+CID=$(sudo docker compose ps -q homebox-mcp)
+test -n "$CID" && sudo docker run --rm --pull=always --network "container:$CID" --env-file .env ghcr.io/3115a083/homebox-mcp:latest python /app/audit_ferret_tools.py
+```
+
+The audit performs only MCP initialize and `tools/list` requests. Its JSON
+shows the advertised names, enabled and disabled normal/destructive writes,
+and whether Ferret offers category/room and maintenance operations. No
+credentials, inventory data, file attachments or remote tool schemas are
+printed. For reproducibility, replace `latest` with an immutable published
+`sha-...` tag.
+
 
 After merging the reviewed change to `main` and a successful image publication,
 use **Update / Aktualisieren** in Dockge. Keep the same stack, existing OAuth
