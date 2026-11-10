@@ -34,9 +34,9 @@ TOOLS = {
     'list_item_attachments', 'read_item_attachment_chunk',
 }
 
-# Ferret's remote tools are never implicitly trusted. Keep a reviewed set of
-# read operations; writes require an exact opt-in in FERRET_WRITE_TOOLS.
-# Deliberately exclude the broad "remove" tool and unreviewed future tools.
+# Reviewed upstream MCP tool inventory, current Ferret (47) and legacy
+# Ferret (40). Keep these finite lists explicit; future upstream tools are
+# never automatically trusted. Reads are available by default.
 FERRET_READ_TOOLS = frozenset({
     'search_inventory', 'ask_inventory', 'get_item', 'list_items',
     'list_locations', 'what_needs_attention', 'shopping_list',
@@ -44,8 +44,12 @@ FERRET_READ_TOOLS = frozenset({
     'list_collections', 'list_warranties', 'inventory_report',
     'list_maintenance', 'list_providers', 'recently_deleted',
     'room_scan_results', 'get_photo', 'list_recalls', 'list_templates',
+    'lookup_barcode',
 })
 
+# Explicit opt-in via FERRET_WRITE_TOOLS, or value "all" for all reviewed
+# NON-DESTRUCTIVE writes. Older installations use create_*/add_*/lend_*
+# while newer ones expose save_* and richer bulk operations.
 FERRET_WRITE_TOOLS = frozenset({
     'add_photo', 'scan_room', 'add_from_room_scan',
     'add_item_from_photo', 'create_item', 'update_item', 'adjust_stock',
@@ -55,6 +59,19 @@ FERRET_WRITE_TOOLS = frozenset({
     'save_warranty', 'save_warranty_claim', 'save_loan',
     'return_loan', 'save_provider', 'save_category',
     'save_collection', 'save_coverage_limit',
+    'create_property', 'create_location', 'add_maintenance',
+    'file_warranty_claim', 'update_warranty_claim', 'add_provider',
+    'lend_item', 'loan_returned', 'move_item',
+})
+
+# Deletion is not a normal write. The legacy delete_item and
+# delete_maintenance operations do not require a name confirmation;
+# modern "remove" can delete many resource types by ID. Never include
+# these in FERRET_WRITE_TOOLS=all. They require a separate explicit
+# FERRET_DESTRUCTIVE_TOOLS opt-in, and the caller must approve the
+# specific target before calling them.
+FERRET_DESTRUCTIVE_TOOLS = frozenset({
+    'delete_item', 'delete_maintenance', 'remove',
 })
 
 def ferret_settings():
@@ -62,7 +79,8 @@ def ferret_settings():
     url = os.environ.get('FERRET_MCP_URL', '').strip()
     token = os.environ.get('FERRET_MCP_TOKEN', '').strip()
     writes = os.environ.get('FERRET_WRITE_TOOLS', '').strip()
-    if not url and not token and not writes:
+    destructive = os.environ.get('FERRET_DESTRUCTIVE_TOOLS', '').strip()
+    if not url and not token and not writes and not destructive:
         return None
     if not url or not token:
         raise ValueError('Set both FERRET_MCP_URL and FERRET_MCP_TOKEN, or neither')
@@ -75,11 +93,19 @@ def ferret_settings():
     if (not token or any(c.isspace() for c in token) or
             token.lower().startswith('bearer ')):
         raise ValueError('FERRET_MCP_TOKEN must contain only the raw bearer token')
-    requested_writes = {x.strip() for x in writes.split(',') if x.strip()}
+    # "all" is an explicit opt-in for reviewed non-destructive writes only.
+    if writes == 'all':
+        requested_writes = set(FERRET_WRITE_TOOLS)
+    else:
+        requested_writes = {x.strip() for x in writes.split(',') if x.strip()}
     unknown = requested_writes - FERRET_WRITE_TOOLS
     if unknown:
         raise ValueError('Unapproved FERRET_WRITE_TOOLS: ' + ', '.join(sorted(unknown)))
-    return url, token, FERRET_READ_TOOLS | requested_writes
+    requested_deletes = {x.strip() for x in destructive.split(',') if x.strip()}
+    unknown_deletes = requested_deletes - FERRET_DESTRUCTIVE_TOOLS
+    if unknown_deletes:
+        raise ValueError('Unapproved FERRET_DESTRUCTIVE_TOOLS: ' + ', '.join(sorted(unknown_deletes)))
+    return url, token, FERRET_READ_TOOLS | requested_writes | requested_deletes
 
 def create_ferret_proxy(url: str, token: str):
     """Forward only gateway-originated calls; never forward ChatGPT's OAuth headers."""
